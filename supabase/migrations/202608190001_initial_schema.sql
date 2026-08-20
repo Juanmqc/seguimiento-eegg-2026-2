@@ -6,6 +6,12 @@ create extension if not exists pgcrypto with schema extensions;
 create schema if not exists private;
 revoke all on schema private from public;
 
+-- Supabase projects may grant API roles powerful default table privileges.
+-- New portal tables must start with no inherited access; grants are explicit below.
+alter default privileges for role postgres in schema public revoke all on tables from anon;
+alter default privileges for role postgres in schema public revoke all on tables from authenticated;
+alter default privileges for role postgres in schema public revoke all on tables from service_role;
+
 create type public.app_role as enum ('docente', 'coordinacion');
 create type public.weekday as enum ('lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado');
 create type public.activity_status as enum ('draft', 'published', 'closed', 'cancelled');
@@ -505,13 +511,22 @@ alter table public.tutorials enable row level security;
 alter table public.notifications enable row level security;
 alter table public.audit_log enable row level security;
 
--- Authenticated users receive table privileges; RLS below decides which rows/actions are allowed.
+-- Remove inherited privileges such as TRUNCATE, TRIGGER, REFERENCES, and MAINTAIN.
+-- RLS below decides which authenticated rows/actions are allowed.
+revoke all privileges on public.profiles, public.teachers, public.courses, public.sections,
+  public.teacher_assignments, public.schedules, public.activities, public.activity_targets,
+  public.activity_responses, public.evidence, public.announcements, public.announcement_targets,
+  public.announcement_reads, public.documents, public.tutorials, public.notifications, public.audit_log
+from anon, authenticated, service_role;
+revoke all privileges on sequence public.audit_log_id_seq from anon, authenticated, service_role;
+
 grant select, insert, update, delete on public.profiles, public.teachers, public.courses, public.sections,
   public.teacher_assignments, public.schedules, public.activities, public.activity_targets,
   public.activity_responses, public.evidence, public.announcements, public.announcement_targets,
   public.announcement_reads, public.documents, public.tutorials, public.notifications, public.audit_log
-to authenticated;
+to authenticated, service_role;
 grant usage, select on sequence public.audit_log_id_seq to authenticated;
+grant usage, select on sequence public.audit_log_id_seq to service_role;
 
 -- profiles
 create policy profiles_select_own on public.profiles for select to authenticated

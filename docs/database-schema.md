@@ -68,6 +68,8 @@ El correo institucional se utilizará como método preferido de acceso en Supaba
 
 Todas las tablas de aplicación tienen RLS habilitado. Las funciones de `private` son `SECURITY DEFINER`, tienen `search_path` vacío y usan nombres completamente calificados. Esto permite consultar el rol y los destinos sin provocar recursión entre políticas.
 
+Los privilegios heredados de Supabase se revocan explícitamente. `anon` no tiene acceso a las tablas del portal; `authenticated` y `service_role` reciben únicamente `SELECT`, `INSERT`, `UPDATE` y `DELETE`. Para `authenticated`, RLS determina las filas y operaciones efectivamente permitidas. Ningún rol API recibe `TRUNCATE`, `TRIGGER`, `REFERENCES` ni `MAINTAIN`.
+
 ### Docente
 
 - Lee su propio `profile` y `teacher`.

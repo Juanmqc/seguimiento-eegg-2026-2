@@ -27,6 +27,62 @@ select pg_temp.assert_true(
   exists(select 1 from public.courses where id='00000000-0000-4000-8000-000000000101'),
   'optional local seed course missing'
 );
+select pg_temp.assert_true(
+  not exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema='public' and grantee='anon'
+  ),
+  'anon must have no privileges on portal tables'
+);
+select pg_temp.assert_true(
+  (select count(*)=68 from information_schema.role_table_grants
+   where table_schema='public' and grantee='authenticated'
+     and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
+  and not exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema='public' and grantee='authenticated'
+      and privilege_type not in ('SELECT','INSERT','UPDATE','DELETE')
+  ),
+  'authenticated must have CRUD only; RLS restricts rows and operations'
+);
+select pg_temp.assert_true(
+  (select count(*)=68 from information_schema.role_table_grants
+   where table_schema='public' and grantee='service_role'
+     and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
+  and not exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema='public' and grantee='service_role'
+      and privilege_type not in ('SELECT','INSERT','UPDATE','DELETE')
+  ),
+  'service_role must have administrative CRUD only'
+);
+select pg_temp.assert_true(
+  not has_table_privilege('anon','public.profiles','TRUNCATE')
+  and not has_table_privilege('authenticated','public.profiles','TRUNCATE')
+  and not has_table_privilege('service_role','public.profiles','TRUNCATE'),
+  'API roles must not have TRUNCATE'
+);
+
+set local role anon;
+do $$ begin
+  begin
+    perform 1 from public.profiles;
+    raise exception 'ASSERTION FAILED: anon accessed portal tables';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set local role service_role;
+insert into public.courses(id,code,name,area)
+values('00000000-0000-4000-8000-000000000999','SERVICE-TEST','Prueba service role','Pruebas');
+update public.courses set short_name='CRUD OK' where id='00000000-0000-4000-8000-000000000999';
+select pg_temp.assert_true(
+  (select short_name='CRUD OK' from public.courses where id='00000000-0000-4000-8000-000000000999'),
+  'service_role administrative CRUD'
+);
+delete from public.courses where id='00000000-0000-4000-8000-000000000999';
+reset role;
 
 -- Fictitious local-only Auth identities. No usable passwords are created.
 insert into auth.users (id, aud, role, email, created_at, updated_at)
