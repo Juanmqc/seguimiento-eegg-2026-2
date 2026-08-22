@@ -1,6 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { getAcademicBlocks, getSessionProfile, type AcademicBlock, type SessionProfile } from "@/lib/academic";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 type Role = "docente" | "admin";
 type Status = "Pendiente" | "Completada" | "Vencida";
@@ -20,34 +23,71 @@ const activities = [
   { id: 4, name: "Registrar plan de primera semana", desc: "Comparte las actividades previstas para el inicio de clases.", published: "13 ago 2026", due: "22 ago 2026", status: "Pendiente" as Status },
 ];
 
-const courses = [
-  { name: "Comunicación I", code: "HUMA101", section: "LN01 · LN02", time: "Lun / Mié 08:00–10:00", room: "Aula B-204", mode: "Presencial", color: "blue" },
-  { name: "Metodología del Estudio", code: "HUMA108", section: "LN04", time: "Mar / Jue 10:00–12:00", room: "Aula C-108", mode: "Presencial", color: "green" },
-  { name: "Taller de Habilidades", code: "HUMA115", section: "LN07", time: "Sáb 09:00–12:00", room: "Microsoft Teams", mode: "Virtual", color: "purple" },
-];
-
-const teacherRows = [
-  ["María Elena Torres", "Comunicación I", "LN01, LN02", "8", "2", "0", "80%"],
-  ["Carlos Alberto Rojas", "Matemática Básica", "LN03", "9", "1", "0", "90%"],
-  ["Lucía Fernández Vega", "Metodología del Estudio", "LN04, LN05", "7", "2", "1", "70%"],
-  ["Jorge Luis Mendoza", "Desarrollo Personal", "LN06", "10", "0", "0", "100%"],
-  ["Rosa Milagros Paredes", "Taller de Habilidades", "LN07", "6", "3", "1", "60%"],
-];
-
 export default function Home() {
-  const [logged, setLogged] = useState(false);
   const [role, setRole] = useState<Role>("docente");
   const [active, setActive] = useState("Inicio");
   const [done, setDone] = useState<number[]>([2]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [profile, setProfile] = useState<SessionProfile | null>(null);
+  const [blocks, setBlocks] = useState<AcademicBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [passwordSetup, setPasswordSetup] = useState(false);
 
-  function login(e: FormEvent) { e.preventDefault(); setLogged(true); setActive(role === "docente" ? "Inicio" : "Dashboard general"); }
+  useEffect(() => {
+    let activeRequest = true;
+    async function loadUser(user: User | null) {
+      if (!user) {
+        if (activeRequest) { setProfile(null); setBlocks([]); setLoading(false); }
+        return;
+      }
+      if (new URLSearchParams(window.location.search).get("set-password") === "1") {
+        if (activeRequest) { setPasswordSetup(true); setLoading(false); }
+        return;
+      }
+      try {
+        const nextProfile = await getSessionProfile(user.id);
+        const nextBlocks = await getAcademicBlocks();
+        if (!activeRequest) return;
+        const nextRole: Role = nextProfile.role === "coordinacion" ? "admin" : "docente";
+        setProfile(nextProfile);
+        setRole(nextRole);
+        setActive(nextRole === "admin" ? "Dashboard general" : "Inicio");
+        setBlocks(nextBlocks);
+        setAuthError("");
+      } catch (error) {
+        if (activeRequest) setAuthError(error instanceof Error ? error.message : "No se pudo cargar el perfil autorizado.");
+      } finally {
+        if (activeRequest) setLoading(false);
+      }
+    }
+    supabase.auth.getUser().then(({ data }) => loadUser(data.user));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      window.setTimeout(() => void loadUser(session?.user ?? null), 0);
+    });
+    return () => { activeRequest = false; listener.subscription.unsubscribe(); };
+  }, []);
+
+  async function login(email: string, password: string) {
+    setLoading(true); setAuthError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) { setAuthError("Correo o contraseña incorrectos."); setLoading(false); }
+  }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
-  function switchRole(next: Role) { setRole(next); setActive(next === "docente" ? "Inicio" : "Dashboard general"); }
+  async function logout() { await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
+  async function finishInvitation(password: string) {
+    setLoading(true); setAuthError("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setAuthError(error.message); setLoading(false); return; }
+    window.history.replaceState({}, "", "/");
+    window.location.reload();
+  }
 
-  if (!logged) return <Login role={role} setRole={setRole} login={login} />;
+  if (passwordSetup) return <PasswordSetup submit={finishInvitation} loading={loading} error={authError} />;
+  if (!profile) return <Login role={role} setRole={setRole} login={login} loading={loading} error={authError} configured={supabaseConfigured} />;
   const nav = role === "docente" ? teacherNav : adminNav;
+  const initials = profile.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("");
   return (
     <div className={`app-shell ${role}`}>
       <Sidebar role={role} nav={nav} active={active} open={menuOpen} onSelect={(n) => { setActive(n); setMenuOpen(false); }} />
@@ -57,22 +97,31 @@ export default function Home() {
           <div className="crumb"><span>{role === "docente" ? "Portal del docente" : "Portal de Coordinación"}</span><b>/</b> {active}</div>
           <div className="top-actions">
             <button className="bell" aria-label="Notificaciones">♢<i>3</i></button>
-            <button className="user-chip"><span className="avatar">{role === "docente" ? "MT" : "AC"}</span><span><b>{role === "docente" ? "María Torres" : "Ana Castillo"}</b><small>{role === "docente" ? "Docente" : "Coordinadora"}</small></span><em>⌄</em></button>
+            <button className="user-chip"><span className="avatar">{initials}</span><span><b>{profile.fullName}</b><small>{role === "docente" ? "Docente" : "Coordinación"}</small></span><em>⌄</em></button>
           </div>
         </header>
         <div className="page-content">
-          {role === "docente" ? <TeacherView active={active} done={done} complete={complete} /> : <AdminView active={active} />}
+          {role === "docente" ? <TeacherView active={active} done={done} complete={complete} blocks={blocks} profile={profile} /> : <AdminView active={active} blocks={blocks} />}
         </div>
       </main>
       {menuOpen && <button className="backdrop" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
-      <div className="role-switch"><button onClick={() => switchRole(role === "docente" ? "admin" : "docente")}>↔ Ver como {role === "docente" ? "coordinador" : "docente"}</button><button onClick={() => setLogged(false)}>Salir</button></div>
+      <div className="role-switch"><button onClick={logout}>Cerrar sesión</button></div>
       {toast && <div className="toast"><b>✓</b><span><strong>¡Registro exitoso!</strong>{toast}</span></div>}
     </div>
   );
 }
 
-function Login({ role, setRole, login }: { role: Role; setRole: (r: Role) => void; login: (e: FormEvent) => void }) {
+function PasswordSetup({submit,loading,error}:{submit:(password:string)=>Promise<void>;loading:boolean;error:string}) {
+  const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState("");
+  function save(event:FormEvent){event.preventDefault();if(password!==confirm)return;void submit(password)}
+  return <div className="login-page"><section className="login-brand"><div className="text-university-mark"><span>Universidad</span><strong>Norbert Wiener</strong></div><div className="brand-copy"><small>PORTAL DE SEGUIMIENTO DOCENTE</small><span className="yellow-rule"/><h1>EEGG LIMA NORTE<br/><b>2026-II</b></h1></div></section><section className="login-panel"><form className="login-card" onSubmit={save}><span className="login-institution">INVITACIÓN DE COORDINACIÓN</span><h2>Configura tu<br/>contraseña</h2><p className="subtitle">La invitación fue verificada. Define una contraseña personal para tus próximos accesos.</p><label>Nueva contraseña<div className="input-wrap"><span>◆</span><input required minLength={8} type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></div></label><label>Confirmar contraseña<div className="input-wrap"><span>◆</span><input required minLength={8} type="password" autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></div></label>{password&&confirm&&password!==confirm&&<div className="demo-note login-error"><b>!</b><span><strong>Las contraseñas no coinciden</strong>Revisa ambos campos.</span></div>}{error&&<div className="demo-note login-error"><b>!</b><span><strong>No se pudo guardar</strong>{error}</span></div>}<button className="primary login-button" disabled={loading||password!==confirm}>{loading?"Guardando…":"Guardar y entrar"} <span>→</span></button></form></section></div>
+}
+
+function Login({ role, setRole, login, loading, error, configured }: { role: Role; setRole: (r: Role) => void; login: (email: string, password: string) => Promise<void>; loading: boolean; error: string; configured: boolean }) {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  function submit(event: FormEvent) { event.preventDefault(); void login(email, password); }
   return <div className="login-page">
     <section className="login-brand">
       <div className="text-university-mark"><span>Universidad</span><strong>Norbert Wiener</strong></div>
@@ -87,17 +136,17 @@ function Login({ role, setRole, login }: { role: Role; setRole: (r: Role) => voi
       <small className="internal-tool-note">HERRAMIENTA INTERNA DE SEGUIMIENTO DOCENTE</small>
     </section>
     <section className="login-panel">
-      <form className="login-card" onSubmit={login}>
+      <form className="login-card" onSubmit={submit}>
         <div className="mobile-logo"><div className="text-university-mark"><span>Universidad</span><strong>Norbert Wiener</strong></div></div>
         <span className="login-institution">UNIVERSIDAD NORBERT WIENER</span>
         <h2>Portal de Seguimiento<br/>Docente</h2>
         <p className="subtitle">Estudios Generales — Lima Norte — 2026-II</p>
         <div className="role-tabs"><button type="button" className={role === "docente" ? "active" : ""} onClick={() => setRole("docente")}>Docente</button><button type="button" className={role === "admin" ? "active" : ""} onClick={() => setRole("admin")}>Coordinación</button></div>
-        <label>Usuario institucional<div className="input-wrap"><span aria-hidden="true">●</span><input required placeholder="nombre.apellido" defaultValue="maria.torres" /></div></label>
-        <label>Contraseña<div className="input-wrap"><span aria-hidden="true">◆</span><input required type={showPassword ? "text" : "password"} placeholder="••••••••" defaultValue="demo2026"/><button type="button" aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "◌" : "◉"}</button></div></label>
+        <label>Correo institucional<div className="input-wrap"><span aria-hidden="true">●</span><input required type="email" autoComplete="username" placeholder="nombre@dominio.edu.pe" value={email} onChange={(e)=>setEmail(e.target.value)} /></div></label>
+        <label>Contraseña<div className="input-wrap"><span aria-hidden="true">◆</span><input required autoComplete="current-password" type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e)=>setPassword(e.target.value)}/><button type="button" aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "◌" : "◉"}</button></div></label>
         <div className="login-meta"><label><input type="checkbox"/> Recordarme</label><a href="#demo">¿Olvidaste tu contraseña?</a></div>
-        <button className="primary login-button">Iniciar sesión <span>→</span></button>
-        <div className="demo-note"><b>i</b><span><strong>Acceso de demostración</strong>Puedes ingresar con los datos precargados.</span></div>
+        <button className="primary login-button" disabled={loading || !configured}>{loading ? "Verificando…" : "Iniciar sesión"} <span>→</span></button>
+        {(error || !configured) && <div className="demo-note login-error"><b>!</b><span><strong>No se pudo iniciar sesión</strong>{error || "Falta configurar la conexión pública con Supabase."}</span></div>}
         <small className="support">¿Necesitas ayuda? <a href="mailto:soporte@universidad.edu.pe">Contacta a soporte</a></small>
       </form>
     </section>
@@ -114,27 +163,29 @@ function Sidebar({ role, nav, active, open, onSelect }: { role: Role; nav: strin
   </aside>
 }
 
-function TeacherView({ active, done, complete }: { active: string; done: number[]; complete: (id: number) => void }) {
-  if (active === "Inicio") return <TeacherHome done={done} />;
-  if (active === "Mis cursos") return <Courses />;
-  if (active === "Mi horario") return <Schedule />;
+function TeacherView({ active, done, complete, blocks, profile }: { active: string; done: number[]; complete: (id: number) => void; blocks: AcademicBlock[]; profile: SessionProfile }) {
+  if (active === "Inicio") return <TeacherHome done={done} blocks={blocks} name={profile.fullName} />;
+  if (active === "Mis cursos") return <Courses blocks={blocks} />;
+  if (active === "Mi horario") return <Schedule blocks={blocks} />;
   if (active === "Actividades") return <Activities done={done} complete={complete} />;
   if (active === "Comunicados") return <Announcements />;
   if (active === "Documentos") return <Documents admin={false} />;
   if (active === "Tutoriales") return <Tutorials admin={false} />;
   if (active === "Mi cumplimiento") return <Compliance done={done} />;
-  return <Profile />;
+  return <Profile blocks={blocks} profile={profile} />;
 }
 
 function PageTitle({ eyebrow, title, copy, action }: { eyebrow?: string; title: string; copy: string; action?: React.ReactNode }) {
   return <div className="page-title"><div>{eyebrow && <span>{eyebrow}</span>}<h1>{title}</h1><p>{copy}</p></div>{action}</div>;
 }
 
-function TeacherHome({ done }: { done: number[] }) {
+function TeacherHome({ done, blocks, name }: { done: number[]; blocks: AcademicBlock[]; name: string }) {
   const progress = Math.min(100, 62 + Math.max(0, done.length - 1) * 8);
   const currentDate = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toLocaleUpperCase("es-PE");
+  const courseCount = new Set(blocks.map((block) => block.courseId)).size;
+  const sectionCount = new Set(blocks.map((block) => block.sectionId)).size;
   return <>
-    <PageTitle eyebrow={currentDate} title="¡Buenos días, María!" copy="Aquí tienes un resumen de tus actividades para esta semana." />
+    <PageTitle eyebrow={currentDate} title={`¡Buenos días, ${name.split(" ")[0]}!`} copy={`Tienes ${courseCount} cursos y ${sectionCount} secciones asignadas en 2026-II.`} />
     <div className="notice urgent"><span className="notice-icon">!</span><div><b>Reunión de coordinación académica</b><p>Este viernes 14 de agosto a las 4:00 p. m. · Sala de reuniones, pabellón B.</p></div><button>Ver comunicado →</button></div>
     <section className="stats teacher-stats">
       <Stat icon="✓" value="4" label="Actividades asignadas" tone="navy"/><Stat icon="●" value={String(done.length)} label="Actividades realizadas" tone="green"/><Stat icon="◷" value={String(4-done.length)} label="Actividades pendientes" tone="orange"/><Stat icon="!" value="1" label="Actividad vencida" tone="red"/>
@@ -147,7 +198,7 @@ function TeacherHome({ done }: { done: number[] }) {
       </div></section>
       <section className="panel progress-panel"><PanelHead title="Mi cumplimiento" link="Ver detalle"/><div className="progress-ring" style={{"--progress": `${progress * 3.6}deg`} as React.CSSProperties}><div><strong>{progress}%</strong><span>Cumplimiento</span></div></div><div className="progress-legend"><span><i className="green-dot"/>Realizadas <b>{done.length}</b></span><span><i className="orange-dot"/>Pendientes <b>{4-done.length}</b></span><span><i className="red-dot"/>Vencidas <b>1</b></span></div><p>Estás cerca de tu meta. Completa tus pendientes antes de la fecha límite.</p></section>
       <section className="panel dates-panel"><PanelHead title="Próximas fechas" link="Ver horario"/><div className="date-row"><div><b>14</b><span>AGO</span></div><p><strong>Reunión de coordinación</strong><small>Viernes · 4:00 p. m.</small></p><i>›</i></div><div className="date-row"><div><b>24</b><span>AGO</span></div><p><strong>Inicio de clases</strong><small>Lunes · 8:00 a. m.</small></p><i>›</i></div><div className="date-row"><div><b>31</b><span>AGO</span></div><p><strong>Entrega de diagnóstico</strong><small>Lunes · Todo el día</small></p><i>›</i></div></section>
-      <section className="panel quick-panel"><PanelHead title="Accesos rápidos"/><div><button><i>▤</i><span><b>Mis cursos</b><small>3 cursos asignados</small></span>›</button><button><i>▱</i><span><b>Documentos</b><small>Sílabos y formatos</small></span>›</button><button><i>▷</i><span><b>Tutoriales</b><small>Guías y videos</small></span>›</button></div></section>
+      <section className="panel quick-panel"><PanelHead title="Accesos rápidos"/><div><button><i>▤</i><span><b>Mis cursos</b><small>{courseCount} cursos asignados</small></span>›</button><button><i>◷</i><span><b>Mi horario</b><small>{blocks.length} bloques programados</small></span>›</button><button><i>▱</i><span><b>Documentos</b><small>Sílabos y formatos</small></span>›</button></div></section>
     </div>
   </>;
 }
@@ -156,9 +207,21 @@ function Stat({ icon, value, label, tone }: { icon: string; value: string; label
 function PanelHead({ title, link }: { title: string; link?: string }) { return <div className="panel-head"><h2>{title}</h2>{link && <button>{link} →</button>}</div>; }
 function TaskMini({ color, title, tag, due }: { color: string; title: string; tag: string; due: string }) { return <div className={`task-mini ${color}`}><i>□</i><div><b>{title}</b><span><em>{tag}</em> · {due}</span></div><button>›</button></div>; }
 
-function Courses() { return <><PageTitle eyebrow="DOCENCIA" title="Mis cursos" copy="Consulta tus asignaturas, horarios y materiales del ciclo 2026-II."/><div className="course-grid">{courses.map(c => <article className={`course-card ${c.color}`} key={c.name}><div className="course-top"><span>{c.code}</span><em>{c.mode}</em></div><h2>{c.name}</h2><p>Secciones <b>{c.section}</b></p><div className="course-info"><span><i>◷</i><small>HORARIO</small><b>{c.time}</b></span><span><i>⌖</i><small>AULA</small><b>{c.room}</b></span></div><div className="course-actions"><button className="primary">Ver sílabo</button><button>Documentos</button></div></article>)}</div></> }
+function Courses({ blocks }: { blocks: AcademicBlock[] }) {
+  const grouped = useMemo(() => Array.from(new Map(blocks.map((block) => [block.sectionId, block])).values()), [blocks]);
+  return <><PageTitle eyebrow="DOCENCIA" title="Mis cursos" copy="Programación oficial del ciclo 2026-II."/><div className="course-grid">{grouped.map((block, index) => <article className={`course-card ${["blue","green","purple"][index%3]}`} key={block.sectionId}><div className="course-top"><span>{block.courseCode}</span><em>{block.modality}</em></div><h2>{block.courseName}</h2><p>Sección académica <b>{block.sectionCode}</b></p><div className="course-info"><span><i>▤</i><small>COMPONENTE</small><b>{block.component} · Clase {block.classNumber}</b></span><span><i>⌖</i><small>INSTALACIÓN</small><b>{block.classroom || "Por confirmar"}</b></span></div>{block.coordinators.map(contact=><div className="course-coordinator" key={contact.fullName}><small>COORDINACIÓN DEL CURSO</small><b>{contact.fullName}</b><span>{contact.institutionalEmail||"Correo institucional pendiente"}{contact.phone?` · ${contact.phone}`:""}</span></div>)}<div className="course-actions"><button className="primary">{block.day} · {formatTime(block.startTime)}–{formatTime(block.endTime)}</button></div></article>)}</div>{grouped.length===0&&<EmptyProgramming/>}</>;
+}
 
-function Schedule() { const days = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"]; return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Ciclo 2026-II · Vigente desde el 24 de agosto." action={<button className="outline">↓ Descargar horario</button>}/><section className="schedule panel"><div className="schedule-grid"><div className="hour-head">HORA</div>{days.map(d=><div className="day-head" key={d}>{d.toUpperCase()}</div>)}{["08:00","09:00","10:00","11:00","12:00"].map((h,ri)=><div className="schedule-row" key={h} style={{gridRow:ri+2}}><span>{h}</span></div>)}<div className="class-block blue" style={{gridColumn:2,gridRow:"2 / 4"}}><b>Comunicación I</b><span>LN01 · B-204</span></div><div className="class-block blue" style={{gridColumn:4,gridRow:"2 / 4"}}><b>Comunicación I</b><span>LN02 · B-204</span></div><div className="class-block green" style={{gridColumn:3,gridRow:"4 / 6"}}><b>Metodología</b><span>LN04 · C-108</span></div><div className="class-block green" style={{gridColumn:5,gridRow:"4 / 6"}}><b>Metodología</b><span>LN04 · C-108</span></div><div className="class-block purple" style={{gridColumn:7,gridRow:"3 / 6"}}><b>Taller de Habilidades</b><span>LN07 · Virtual</span></div></div></section></> }
+function Schedule({ blocks }: { blocks: AcademicBlock[] }) {
+  const order = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
+  const sorted = [...blocks].sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day)||a.startTime.localeCompare(b.startTime));
+  return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Programación oficial del ciclo 2026-II."/><section className="panel table-wrap academic-table"><table><thead><tr>{["Día","Horario","Curso","Sección","Componente","Clase","Instalación","Modalidad"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{sorted.map(block=><tr key={`${block.assignmentId}-${block.classNumber}-${block.day}`}><td><b>{capitalize(block.day)}</b></td><td>{formatTime(block.startTime)}–{formatTime(block.endTime)}</td><td><b>{block.courseName}</b><small className="table-code">{block.courseCode}</small></td><td>{block.sectionCode}<small className="table-code">Origen: {block.originalSection}</small></td><td><span className="badge">{capitalize(block.component)}</span></td><td>{block.classNumber}</td><td>{block.classroom || "Por confirmar"}</td><td>{block.modality || "Por confirmar"}</td></tr>)}</tbody></table></section>{sorted.length===0&&<EmptyProgramming/>}</>;
+}
+
+function AcademicRows({blocks}:{blocks:AcademicBlock[]}){const rows=[...blocks].sort((a,b)=>a.teacherName.localeCompare(b.teacherName)||a.courseName.localeCompare(b.courseName)||a.classNumber-b.classNumber);return <table><thead><tr>{["Docente","Curso","Sección","Componente","Clase","Día y hora","Instalación","Modalidad"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{rows.map(b=><tr key={`${b.assignmentId}-${b.classNumber}-${b.day}`}><td><b>{b.teacherName}</b></td><td>{b.courseName}<small className="table-code">{b.courseCode}</small></td><td>{b.sectionCode}<small className="table-code">Origen: {b.originalSection}</small></td><td><span className="badge">{capitalize(b.component)}</span></td><td>{b.classNumber}</td><td>{capitalize(b.day)} · {formatTime(b.startTime)}–{formatTime(b.endTime)}</td><td>{b.classroom||"Por confirmar"}</td><td>{b.modality||"Por confirmar"}</td></tr>)}</tbody></table>}
+function formatTime(value:string){return value.slice(0,5)}
+function capitalize(value:string){return value.charAt(0).toUpperCase()+value.slice(1)}
+function EmptyProgramming(){return <section className="panel empty-programming"><b>Sin programación vinculada</b><p>La cuenta está activa, pero todavía no está enlazada con un registro docente.</p></section>}
 
 function Activities({ done, complete }: { done: number[]; complete: (id: number) => void }) { const [filter,setFilter]=useState("Todas"); const shown=activities.filter(a=>filter==="Todas" || (done.includes(a.id)?"Completada":a.status)===filter); return <><PageTitle eyebrow="SEGUIMIENTO" title="Mis actividades" copy="Revisa tus tareas académicas y administrativas y registra su cumplimiento."/><div className="filter-row">{["Todas","Pendiente","Completada","Vencida"].map(f=><button key={f} className={filter===f?"active":""} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="activity-list">{shown.map(a=>{const current=done.includes(a.id)?"Completada":a.status;return <article className="activity-card" key={a.id}><div className={`status-mark ${current.toLowerCase()}`}>{current==="Completada"?"✓":current==="Vencida"?"!":"◷"}</div><div className="activity-body"><div className="activity-title"><div><span className={`badge ${current.toLowerCase()}`}>{current}</span><h2>{a.name}</h2></div><button>•••</button></div><p>{a.desc}</p><div className="activity-dates"><span><small>PUBLICADA</small><b>{a.published}</b></span><span><small>FECHA LÍMITE</small><b>{a.due}</b></span></div>{current!=="Completada"?<><textarea placeholder="Añade una observación (opcional)"/><div className="evidence"><button>＋ Adjuntar evidencia</button><small>PDF, JPG o PNG · Máx. 10 MB (próximamente)</small></div><button className="primary" onClick={()=>complete(a.id)}>✓ Marcar como realizada</button></>:<div className="completed-note"><b>✓ Actividad registrada</b><span>Tu confirmación quedó guardada correctamente.</span></div>}</div></article>})}</div></> }
 
@@ -172,11 +235,11 @@ function Tutorials({admin}:{admin:boolean}) { return <><PageTitle eyebrow="APREN
 
 function Compliance({done}:{done:number[]}) { const pct=Math.min(100,62+(done.length-1)*8); return <><PageTitle eyebrow="DESEMPEÑO PERSONAL" title="Mi cumplimiento" copy="Resumen de tus actividades asignadas durante el ciclo 2026-II."/><section className="stats"><Stat icon="▤" value="10" label="Asignadas" tone="navy"/><Stat icon="✓" value={String(6+done.length)} label="Realizadas" tone="green"/><Stat icon="◷" value={String(3-done.length+1)} label="Pendientes" tone="orange"/><Stat icon="!" value="1" label="Vencida" tone="red"/></section><section className="panel compliance-card"><div><span>CUMPLIMIENTO GENERAL</span><h2>{pct}%</h2><p>Has completado {6+done.length} de 10 actividades asignadas.</p></div><div className="big-progress"><div style={{width:`${pct}%`}}/></div><div className="milestones"><span>0%</span><span>Meta institucional: 90%</span><span>100%</span></div></section></> }
 
-function Profile(){return <><PageTitle eyebrow="CUENTA" title="Mi perfil" copy="Información docente registrada para el ciclo actual."/><section className="panel profile-card"><div className="profile-head"><span className="profile-avatar">MT</span><div><h2>María Elena Torres Salazar</h2><p>Docente de Estudios Generales</p><span className="badge completada">PERFIL ACTIVO</span></div><button className="outline">Editar datos de contacto</button></div><div className="profile-grid"><div><small>CÓDIGO DOCENTE</small><b>DOC-08421</b></div><div><small>CORREO INSTITUCIONAL</small><b>maria.torres@universidad.edu.pe</b></div><div><small>SEDE</small><b>Lima Norte</b></div><div><small>CICLO</small><b>2026-II</b></div></div><PanelHead title="Cursos asignados"/><div className="profile-courses">{courses.map(c=><span key={c.name}><i>▤</i><b>{c.name}</b><small>{c.section}</small></span>)}</div></section></>}
+function Profile({blocks,profile}:{blocks:AcademicBlock[];profile:SessionProfile}){const teacher=blocks[0];const sections=Array.from(new Map(blocks.map(b=>[b.sectionId,b])).values());return <><PageTitle eyebrow="CUENTA" title="Mi perfil" copy="Información docente registrada para el ciclo actual."/><section className="panel profile-card"><div className="profile-head"><span className="profile-avatar">{profile.fullName.split(" ").map(x=>x[0]).slice(0,2).join("")}</span><div><h2>{teacher?.teacherName||profile.fullName}</h2><p>Docente de Estudios Básicos y Complementarios</p><span className="badge completada">PERFIL ACTIVO</span></div></div><div className="profile-grid"><div><small>CORREO INSTITUCIONAL</small><b>{teacher?.teacherEmail||"Pendiente de vinculación"}</b></div><div><small>SEDE</small><b>Lima Norte</b></div><div><small>CICLO</small><b>2026-II</b></div><div><small>BLOQUES PROGRAMADOS</small><b>{blocks.length}</b></div></div><PanelHead title="Cursos asignados"/><div className="profile-courses">{sections.map(c=><span key={c.sectionId}><i>▤</i><b>{c.courseName}</b><small>Sección {c.sectionCode}</small></span>)}</div></section></>}
 
-function AdminView({active}:{active:string}) {
- if(active==="Dashboard general") return <AdminDashboard/>;
- if(active==="Docentes") return <Teachers/>;
+function AdminView({active,blocks}:{active:string;blocks:AcademicBlock[]}) {
+ if(active==="Dashboard general") return <AdminDashboard blocks={blocks}/>;
+ if(active==="Docentes") return <Teachers blocks={blocks}/>;
  if(active==="Actividades") return <AdminActivities/>;
  if(active==="Comunicados") return <AdminAnnouncements/>;
  if(active==="Documentos") return <Documents admin/>;
@@ -184,9 +247,9 @@ function AdminView({active}:{active:string}) {
  return <Reports/>;
 }
 
-function AdminDashboard(){return <><PageTitle eyebrow="PORTAL DE COORDINACIÓN" title="Dashboard general" copy="Seguimiento del equipo docente · Estudios Generales Lima Norte · 2026-II" action={<button className="outline">↓ Exportar resumen</button>}/><section className="stats admin-stats"><Stat icon="♧" value="48" label="Total de docentes" tone="navy"/><Stat icon="▤" value="12" label="Actividades asignadas" tone="blue"/><Stat icon="✓" value="386" label="Actividades realizadas" tone="green"/><Stat icon="◷" value="82" label="Actividades pendientes" tone="orange"/><Stat icon="!" value="14" label="Actividades vencidas" tone="red"/><Stat icon="◔" value="80%" label="Cumplimiento general" tone="blue"/></section><div className="admin-grid"><section className="panel overall"><PanelHead title="Cumplimiento general" link="Ver reporte"/><div className="overall-body"><div className="progress-ring big" style={{"--progress":"288deg"} as React.CSSProperties}><div><strong>80%</strong><span>General</span></div></div><div className="overall-copy"><h3>Buen nivel de cumplimiento</h3><p>El equipo está a 10 puntos de la meta institucional.</p><div className="big-progress"><div style={{width:"80%"}}/></div><small>Meta institucional <b>90%</b></small></div></div></section><section className="panel attention"><PanelHead title="Requieren atención" link="Ver docentes"/><div className="attention-row"><span>RP</span><div><b>Rosa M. Paredes</b><small>4 actividades pendientes</small></div><em>60%</em></div><div className="attention-row"><span>LF</span><div><b>Lucía Fernández</b><small>3 actividades pendientes</small></div><em>70%</em></div><div className="attention-row"><span>AV</span><div><b>Andrés Valdivia</b><small>2 actividades vencidas</small></div><em>72%</em></div></section><section className="panel admin-tasks"><PanelHead title="Actividades recientes" link="Gestionar"/>{activities.slice(0,3).map(a=><div className="admin-task-row" key={a.id}><i>▤</i><div><b>{a.name}</b><small>Asignada a 48 docentes · Vence {a.due}</small></div><span>{a.id===1?"32 / 48":"41 / 48"}</span></div>)}</section><section className="panel distribution"><PanelHead title="Estado de actividades"/><div className="bars"><div><span>Completadas <b>386</b></span><i><em style={{width:"80%"}}/></i></div><div><span>Pendientes <b>82</b></span><i><em style={{width:"17%"}}/></i></div><div><span>Vencidas <b>14</b></span><i><em style={{width:"3%"}}/></i></div></div></section></div></>}
+function AdminDashboard({blocks}:{blocks:AcademicBlock[]}){const teachers=new Set(blocks.map(b=>b.teacherId)).size;const coursesCount=new Set(blocks.map(b=>b.courseId)).size;const sections=new Set(blocks.map(b=>b.sectionId)).size;const theory=blocks.filter(b=>b.component==="teoría").length;const practice=blocks.filter(b=>b.component==="práctica").length;return <><PageTitle eyebrow="PORTAL DE COORDINACIÓN" title="Dashboard general" copy="Programación oficial · Estudios Básicos y Complementarios · Lima Norte · 2026-II"/><section className="stats admin-stats"><Stat icon="♧" value={String(teachers)} label="Docentes activos" tone="navy"/><Stat icon="▤" value={String(coursesCount)} label="Cursos" tone="blue"/><Stat icon="▣" value={String(sections)} label="Secciones" tone="green"/><Stat icon="◷" value={String(blocks.length)} label="Bloques horarios" tone="orange"/><Stat icon="T" value={String(theory)} label="Teorías" tone="blue"/><Stat icon="P" value={String(practice)} label="Prácticas" tone="red"/></section><section className="panel table-wrap academic-table"><PanelHead title="Programación académica consolidada"/><AcademicRows blocks={blocks}/></section></>}
 
-function Teachers(){const [q,setQ]=useState("");const rows=teacherRows.filter(r=>r[0].toLowerCase().includes(q.toLowerCase()));return <><PageTitle eyebrow="EQUIPO ACADÉMICO" title="Docentes" copy="Consulta el avance y cumplimiento individual del equipo docente." action={<button className="primary">＋ Registrar docente</button>}/><div className="table-tools"><div className="search">⌕ <input placeholder="Buscar docente..." value={q} onChange={e=>setQ(e.target.value)}/></div><button className="outline">Curso: Todos ⌄</button><button className="outline">Estado: Todos ⌄</button></div><section className="panel table-wrap"><table><thead><tr>{["Docente","Curso","Secciones","Realizadas","Pendientes","Vencidas","Cumplimiento",""] .map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={r[0]}><td><span className="table-avatar">{r[0].split(" ").map(x=>x[0]).slice(0,2).join("")}</span><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td><span className="count green">{r[3]}</span></td><td><span className="count orange">{r[4]}</span></td><td><span className="count red">{r[5]}</span></td><td><div className="mini-progress"><i><em style={{width:r[6]}}/></i><b className={i===4?"low":""}>{r[6]}</b></div></td><td><button>•••</button></td></tr>)}</tbody></table><div className="table-footer">Mostrando {rows.length} de 48 docentes <span><button>‹</button><button className="active">1</button><button>2</button><button>3</button><button>›</button></span></div></section></>}
+function Teachers({blocks}:{blocks:AcademicBlock[]}){const [q,setQ]=useState("");const grouped=useMemo(()=>{const map=new Map<string,{name:string;courses:Set<string>;sections:Set<string>;blocks:number}>();for(const b of blocks){const row=map.get(b.teacherId)??{name:b.teacherName,courses:new Set<string>(),sections:new Set<string>(),blocks:0};row.courses.add(b.courseName);row.sections.add(b.sectionCode);row.blocks++;map.set(b.teacherId,row)}return [...map.values()].filter(r=>r.name.toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name));},[blocks,q]);return <><PageTitle eyebrow="EQUIPO ACADÉMICO" title="Docentes" copy="Programación docente real del ciclo 2026-II."/><div className="table-tools"><div className="search">⌕ <input placeholder="Buscar docente..." value={q} onChange={e=>setQ(e.target.value)}/></div></div><section className="panel table-wrap"><table><thead><tr>{["Docente","Cursos","Secciones","Bloques de horario"] .map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{grouped.map(r=><tr key={r.name}><td><span className="table-avatar">{r.name.split(" ").map(x=>x[0]).slice(0,2).join("")}</span><b>{r.name}</b></td><td>{[...r.courses].join(", ")}</td><td>{[...r.sections].join(", ")}</td><td><span className="count green">{r.blocks}</span></td></tr>)}</tbody></table><div className="table-footer">Mostrando {grouped.length} docentes activos</div></section></>}
 
 function AdminActivities(){return <><PageTitle eyebrow="GESTIÓN ACADÉMICA" title="Actividades" copy="Crea, asigna y supervisa las actividades del equipo docente." action={<button className="primary">＋ Nueva actividad</button>}/><div className="filter-row"><button className="active">Todas <b>12</b></button><button>Activas <b>7</b></button><button>Finalizadas <b>4</b></button><button>Borradores <b>1</b></button></div><div className="assignment-options"><span>Asignar a:</span><button>Todos los docentes</button><button>Por curso</button><button>Docentes específicos</button></div><div className="admin-activity-grid">{activities.map((a,i)=><article className="panel admin-activity" key={a.id}><div><span className={`badge ${i===2?"vencida":"pendiente"}`}>{i===2?"FINALIZADA":"ACTIVA"}</span><button>•••</button></div><h2>{a.name}</h2><p>{a.desc}</p><div className="assignment"><span><small>ASIGNACIÓN</small><b>{i===3?"18 docentes":"Todos los docentes"}</b></span><span><small>FECHA LÍMITE</small><b>{a.due}</b></span></div><div className="completion"><span><b>{[32,41,48,12][i]} de {i===3?18:48}</b> cumplieron</span><b>{[67,85,100,67][i]}%</b><i><em style={{width:`${[67,85,100,67][i]}%`}}/></i></div><div className="activity-status-summary"><span className="done">✓ Cumplieron</span><span className="waiting">◷ Pendientes</span><span className="late">! Vencidos</span></div><div className="card-footer"><button>Editar</button><button>Ver cumplimiento →</button></div></article>)}</div></>}
 

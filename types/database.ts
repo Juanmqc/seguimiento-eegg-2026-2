@@ -5,7 +5,8 @@ export type LocalTime = string;
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type AppRole = "docente" | "coordinacion";
-export type Weekday = "lunes" | "martes" | "miércoles" | "jueves" | "viernes" | "sábado";
+export type Weekday = "lunes" | "martes" | "miércoles" | "jueves" | "viernes" | "sábado" | "domingo";
+export type ClassComponent = "teoría" | "práctica";
 export type ActivityStatus = "draft" | "published" | "closed" | "cancelled";
 export type TargetType = "all" | "teacher" | "course" | "section";
 export type ActivityResponseStatus = "pending" | "completed" | "overdue" | "exempt" | "rejected";
@@ -27,9 +28,10 @@ export interface Profile {
 
 export interface Teacher {
   id: UUID;
-  profile_id: UUID;
+  profile_id: UUID | null;
   display_name: string;
-  institutional_email: string;
+  institutional_email: string | null;
+  source_identifier: string | null;
   phone: string | null;
   active: boolean;
   created_at: ISODateTime;
@@ -64,19 +66,59 @@ export interface TeacherAssignment {
   id: UUID;
   teacher_id: UUID;
   section_id: UUID;
+  teacher_category: string | null;
   academic_term: string;
   active: boolean;
   created_at: ISODateTime;
 }
 
+export interface SectionComponent {
+  id: UUID;
+  section_id: UUID;
+  original_section_code: string;
+  component: ClassComponent;
+  class_number: number;
+  associated_class: number | null;
+  class_type: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
 export interface Schedule {
   id: UUID;
   teacher_assignment_id: UUID;
+  section_component_id: UUID;
   day_of_week: Weekday;
   start_time: LocalTime;
   end_time: LocalTime;
   classroom: string | null;
   modality: string | null;
+  shift: string | null;
+  teaching_model: string | null;
+  academic_hours: number | null;
+  facility_id: string | null;
+  environment_type: string | null;
+  environment_capacity: number | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface CourseCoordinator {
+  id: UUID;
+  full_name: string;
+  phone: string | null;
+  institutional_email: string | null;
+  active: boolean;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface CourseCoordinatorAssignment {
+  id: UUID;
+  coordinator_id: UUID;
+  course_id: UUID | null;
+  source_course_name: string;
+  active: boolean;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

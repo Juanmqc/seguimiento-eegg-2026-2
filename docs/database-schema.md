@@ -1,10 +1,12 @@
 # Esquema de datos — Seguimiento EEGG 2026-2
 
-Este documento describe la primera migración local propuesta para Supabase. La migración **no ha sido aplicada a ningún proyecto remoto** y no crea usuarios de Auth.
+Este documento describe el esquema del portal y sus migraciones incrementales. La migración inicial ya fue validada y aplicada; la ampliación académica permanece únicamente local hasta recibir autorización expresa. Ninguna migración crea usuarios de Auth.
 
 ## Archivos
 
-- `supabase/migrations/202608190001_initial_schema.sql`: esquema, constraints, índices, triggers y RLS.
+- `supabase/migrations/202608190001_initial_schema.sql`: esquema inicial, constraints, índices, triggers y RLS.
+- `supabase/migrations/202608210001_academic_schedule_components.sql`: ampliación incremental para componentes y datos de programación académica.
+- `supabase/migrations/202608220001_teacher_staging_without_auth.sql`: permite cargar la ficha académica antes de crear Auth o conocer el correo institucional.
 - `supabase/seed.sql`: seed local opcional con un curso y una sección totalmente ficticios.
 - `types/database.ts`: tipos de dominio para la integración futura, sin conectar las pantallas actuales.
 
@@ -16,8 +18,10 @@ erDiagram
   PROFILES ||--o| TEACHERS : "perfil académico"
   TEACHERS ||--o{ TEACHER_ASSIGNMENTS : "dicta"
   COURSES ||--o{ SECTIONS : "contiene"
+  SECTIONS ||--o{ SECTION_COMPONENTS : "desglosa en teoría/práctica"
   SECTIONS ||--o{ TEACHER_ASSIGNMENTS : "se asigna"
   TEACHER_ASSIGNMENTS ||--o{ SCHEDULES : "tiene"
+  SECTION_COMPONENTS ||--o{ SCHEDULES : "programa"
   PROFILES ||--o{ ACTIVITIES : "crea"
   ACTIVITIES ||--o{ ACTIVITY_TARGETS : "dirige"
   ACTIVITIES ||--o{ ACTIVITY_RESPONSES : "recibe"
@@ -37,11 +41,12 @@ erDiagram
 | Tabla | Propósito | Conservación |
 |---|---|---|
 | `profiles` | Extensión 1:1 de `auth.users`; rol funcional y datos institucionales. | `active` permite desactivar. |
-| `teachers` | Perfil académico asociado de forma única a un profile. | `active`; sin DNI. |
+| `teachers` | Ficha académica; puede existir antes de vincularse a Auth. | `active`; `profile_id` y correo quedan nulos hasta ser verificados. El identificador fuente se conserva como texto protegido por RLS. |
 | `courses` | Catálogo de cursos. | `active`; código único cuando existe. |
 | `sections` | Oferta de un curso por sección y ciclo. | `active`; curso/sección/ciclo único. |
+| `section_components` | Componente de clase de una sección académica; conserva sección original, teoría/práctica, número y tipo de clase. | La sección principal reúne, por ejemplo, `1A` y `1A1`; cada componente conserva su identidad original. |
 | `teacher_assignments` | Relación docente–sección por ciclo. | `active`; no se borra historial en cascada. |
-| `schedules` | Bloques horarios de una asignación. | Valida que fin sea posterior a inicio. |
+| `schedules` | Bloques horarios de una asignación y componente. | Valida sección coincidente, fin posterior a inicio y admite lunes a domingo. |
 | `activities` | Actividades creadas por Coordinación. | Estados `draft`, `published`, `closed`, `cancelled`. |
 | `activity_targets` | Destino: todos, docente, curso o sección. | Constraint exige exactamente la FK correspondiente. |
 | `activity_responses` | Cumplimiento individual, único por actividad/docente. | Historial protegido con FKs `RESTRICT`. |
@@ -59,14 +64,14 @@ erDiagram
 Los roles funcionales son un enum: `docente` y `coordinacion`. No son credenciales. El flujo futuro será:
 
 ```text
-auth.users.id → profiles.id → teachers.profile_id
+auth.users.id → profiles.id → teachers.profile_id (vinculación posterior)
 ```
 
-El correo institucional se utilizará como método preferido de acceso en Supabase Auth. La migración no crea cuentas ni contraseñas. Para el primer usuario de Coordinación se necesitará un procedimiento administrativo controlado después de crear el usuario en Auth; las políticas no permiten que un usuario anónimo se otorgue ese rol.
+El correo institucional se utilizará como método preferido de acceso en Supabase Auth. La ficha de un docente puede cargarse con `profile_id` e `institutional_email` nulos; ambos se completarán únicamente después de crear y verificar la cuenta real. Las migraciones no crean cuentas ni contraseñas. Para el primer usuario de Coordinación se necesitará un procedimiento administrativo controlado después de crear el usuario en Auth; las políticas no permiten que un usuario anónimo se otorgue ese rol.
 
 ## Seguridad y RLS
 
-Todas las tablas de aplicación tienen RLS habilitado. Las funciones de `private` son `SECURITY DEFINER`, tienen `search_path` vacío y usan nombres completamente calificados. Esto permite consultar el rol y los destinos sin provocar recursión entre políticas.
+Las 18 tablas de aplicación tienen RLS habilitado. Las funciones de `private` tienen `search_path` vacío y usan nombres completamente calificados. Los helpers de identidad son `SECURITY DEFINER` para evitar recursión; el validador de componentes de horario es `SECURITY INVOKER`.
 
 Los privilegios heredados de Supabase se revocan explícitamente. `anon` no tiene acceso a las tablas del portal; `authenticated` y `service_role` reciben únicamente `SELECT`, `INSERT`, `UPDATE` y `DELETE`. Para `authenticated`, RLS determina las filas y operaciones efectivamente permitidas. Ningún rol API recibe `TRUNCATE`, `TRIGGER`, `REFERENCES` ni `MAINTAIN`.
 
@@ -74,6 +79,7 @@ Los privilegios heredados de Supabase se revocan explícitamente. `anon` no tien
 
 - Lee su propio `profile` y `teacher`.
 - Lee únicamente asignaciones, secciones, cursos y horarios que le pertenecen.
+- Lee únicamente los componentes de clase de sus propias secciones.
 - Ve actividades publicadas/cerradas dirigidas a todos, a él, a uno de sus cursos o a una de sus secciones.
 - Lee y actualiza su propia respuesta. Un trigger impide cambiar `teacher_id`, `activity_id`, `coordinator_comment` o usar estados reservados a Coordinación.
 - Crea y lee evidencias vinculadas a sus respuestas.
@@ -125,6 +131,14 @@ Más adelante se puede añadir una función programada que persista `overdue`; h
 - Los destinos usan `CASCADE` respecto de su actividad/comunicado porque no tienen valor independiente; una actividad con respuestas históricas no podrá borrarse debido a las FKs restrictivas de respuestas.
 - `created_by` y el actor de auditoría usan `SET NULL` para conservar registros si el perfil deja de existir.
 - No hay `DROP`, `TRUNCATE` ni operaciones remotas en la migración.
+
+## Normalización del horario académico 2026-II
+
+La sección académica principal se guarda en `sections.section_code`. Las filas de teoría y práctica no crean dos secciones: `1A` y `1A1` se relacionan con una sola sección `1A`, pero se conservan como filas diferentes en `section_components`. Allí se almacenan `original_section_code`, `component`, `class_number`, `associated_class` y `class_type`.
+
+Cada bloque de `schedules` apunta simultáneamente a la asignación docente y al componente. Un trigger impide asociar un componente de otra sección. Además de día, horas, aula y modalidad, el horario conserva turno, modelo, horas académicas, identificador de instalación, tipo y capacidad del ambiente. `teacher_assignments.teacher_category` conserva la categoría académica del archivo fuente. El enum `weekday` incluye `domingo`.
+
+`Estado final` se utiliza exclusivamente como filtro de importación: solo `PROGRAMADO` genera registros operativos; `CERRADO` se excluye. `Observación` no se importa. El identificador académico de la fuente se conserva en `teachers.source_identifier` como texto para no perder ceros iniciales, pero no es una credencial y nunca debe exponerse fuera de las políticas RLS de `teachers`.
 
 ## Evidencias y Storage
 

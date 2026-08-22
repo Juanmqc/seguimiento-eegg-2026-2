@@ -77,3 +77,7 @@
 @media(max-width:1250px){.app-shell.admin .admin-stats{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:800px){.app-shell.admin .sidebar{box-shadow:12px 0 32px #041b2e46}.app-shell.admin .page-title h1{font-size:27px}.assignment-options{overflow-x:auto}.assignment-options button{white-space:nowrap}.export-actions{margin-top:13px}}
 @media(max-width:520px){.app-shell.admin .admin-stats{grid-template-columns:1fr 1fr}.app-shell.admin .file-actions{flex-wrap:wrap}.export-actions{display:grid;grid-template-columns:1fr 1fr}}
+
+/* MVP Supabase: tablas académicas reales y estados de conexión. */
+.academic-table{overflow-x:auto}.academic-table table{min-width:980px}.table-code{display:block;margin-top:4px;color:#78909c;font-size:8px;font-weight:600}.empty-programming{margin-top:16px;padding:28px;text-align:center}.empty-programming b{color:#082447}.empty-programming p{margin-top:6px;color:#6b7d90;font-size:12px}.login-error{border-color:#f2c7c3;background:#fff5f4}.login-error>b{background:#f8d8d5;color:#b42318}.login-button:disabled{cursor:not-allowed;opacity:.65}
+.course-coordinator{margin:14px 0 4px;padding:11px 12px;border:1px solid #d9ecee;border-radius:9px;background:#f4fbfc}.course-coordinator small,.course-coordinator b,.course-coordinator span{display:block}.course-coordinator small{color:#007e8b;font-size:7px;font-weight:800;letter-spacing:.08em}.course-coordinator b{margin-top:4px;color:#082447;font-size:10px}.course-coordinator span{margin-top:3px;color:#607d88;font-size:8px;overflow-wrap:anywhere}

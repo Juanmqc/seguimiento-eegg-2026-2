@@ -10,13 +10,13 @@ end $$;
 
 -- Structural checks.
 select pg_temp.assert_true(
-  (select count(*) = 17 from pg_tables where schemaname = 'public'),
-  'expected 17 public application tables'
+  (select count(*) = 18 from pg_tables where schemaname = 'public'),
+  'expected 18 public application tables'
 );
 select pg_temp.assert_true(
-  (select count(*) = 17 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+  (select count(*) = 18 from pg_class c join pg_namespace n on n.oid=c.relnamespace
    where n.nspname='public' and c.relkind='r' and c.relrowsecurity),
-  'RLS must be enabled on all 17 application tables'
+  'RLS must be enabled on all 18 application tables'
 );
 select pg_temp.assert_true(
   (select count(*) >= 24 from pg_constraint c join pg_namespace n on n.oid=c.connamespace
@@ -35,7 +35,7 @@ select pg_temp.assert_true(
   'anon must have no privileges on portal tables'
 );
 select pg_temp.assert_true(
-  (select count(*)=68 from information_schema.role_table_grants
+  (select count(*)=72 from information_schema.role_table_grants
    where table_schema='public' and grantee='authenticated'
      and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
   and not exists (
@@ -46,7 +46,7 @@ select pg_temp.assert_true(
   'authenticated must have CRUD only; RLS restricts rows and operations'
 );
 select pg_temp.assert_true(
-  (select count(*)=68 from information_schema.role_table_grants
+  (select count(*)=72 from information_schema.role_table_grants
    where table_schema='public' and grantee='service_role'
      and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
   and not exists (
@@ -82,6 +82,14 @@ select pg_temp.assert_true(
   'service_role administrative CRUD'
 );
 delete from public.courses where id='00000000-0000-4000-8000-000000000999';
+insert into public.teachers(id,profile_id,display_name,institutional_email,source_identifier)
+values('20000000-0000-4000-8000-000000000999',null,'Docente académico sin Auth',null,'ACADEMIC-TEST-001');
+select pg_temp.assert_true(
+  (select profile_id is null and institutional_email is null
+   from public.teachers where id='20000000-0000-4000-8000-000000000999'),
+  'academic teacher can be staged without Auth or invented email'
+);
+delete from public.teachers where id='20000000-0000-4000-8000-000000000999';
 reset role;
 
 -- Fictitious local-only Auth identities. No usable passwords are created.
@@ -98,6 +106,8 @@ insert into public.profiles(id,role,full_name,institutional_email) values
 insert into public.teachers(id,profile_id,display_name,institutional_email) values
  ('20000000-0000-4000-8000-000000000011','10000000-0000-4000-8000-000000000011','Docente Ficticio A','teacher-a@example.invalid'),
  ('20000000-0000-4000-8000-000000000012','10000000-0000-4000-8000-000000000012','Docente Ficticio B','teacher-b@example.invalid');
+insert into public.teachers(id,profile_id,display_name,institutional_email,source_identifier) values
+ ('20000000-0000-4000-8000-000000000099',null,'Docente académico pendiente de Auth',null,'ACADEMIC-PENDING-099');
 insert into public.courses(id,code,name,area) values
  ('30000000-0000-4000-8000-000000000011','TEST-A','Curso Ficticio A','Pruebas'),
  ('30000000-0000-4000-8000-000000000012','TEST-B','Curso Ficticio B','Pruebas');
@@ -107,9 +117,22 @@ insert into public.sections(id,course_id,section_code) values
 insert into public.teacher_assignments(id,teacher_id,section_id) values
  ('50000000-0000-4000-8000-000000000011','20000000-0000-4000-8000-000000000011','40000000-0000-4000-8000-000000000011'),
  ('50000000-0000-4000-8000-000000000012','20000000-0000-4000-8000-000000000012','40000000-0000-4000-8000-000000000012');
-insert into public.schedules(id,teacher_assignment_id,day_of_week,start_time,end_time) values
- ('60000000-0000-4000-8000-000000000011','50000000-0000-4000-8000-000000000011','lunes','08:00','10:00'),
- ('60000000-0000-4000-8000-000000000012','50000000-0000-4000-8000-000000000012','martes','10:00','12:00');
+insert into public.section_components(id,section_id,original_section_code,component,class_number,associated_class,class_type) values
+ ('51000000-0000-4000-8000-000000000011','40000000-0000-4000-8000-000000000011','A','teoría',101,1,'Sección Inscripción'),
+ ('51000000-0000-4000-8000-000000000021','40000000-0000-4000-8000-000000000011','A1','práctica',102,1,'Sección sin Inscripción'),
+ ('51000000-0000-4000-8000-000000000012','40000000-0000-4000-8000-000000000012','B','teoría',201,2,'Sección Inscripción');
+insert into public.schedules(id,teacher_assignment_id,section_component_id,day_of_week,start_time,end_time) values
+ ('60000000-0000-4000-8000-000000000011','50000000-0000-4000-8000-000000000011','51000000-0000-4000-8000-000000000011','domingo','08:00','10:00'),
+ ('60000000-0000-4000-8000-000000000012','50000000-0000-4000-8000-000000000012','51000000-0000-4000-8000-000000000012','martes','10:00','12:00');
+do $$ begin
+  begin
+    insert into public.schedules(teacher_assignment_id,section_component_id,day_of_week,start_time,end_time)
+    values('50000000-0000-4000-8000-000000000011','51000000-0000-4000-8000-000000000012','lunes','12:00','13:00');
+    raise exception 'ASSERTION FAILED: accepted a component from another academic section';
+  exception when raise_exception then
+    if sqlerrm like 'ASSERTION FAILED:%' then raise; end if;
+  end;
+end $$;
 insert into public.activities(id,title,description,published_at,due_at,status,created_by) values
  ('70000000-0000-4000-8000-000000000001','Actividad para todos','Prueba',now()-interval '1 day',now()+interval '5 day','published','10000000-0000-4000-8000-000000000001'),
  ('70000000-0000-4000-8000-000000000011','Actividad A','Prueba',now()-interval '1 day',now()+interval '5 day','published','10000000-0000-4000-8000-000000000001'),
@@ -146,7 +169,9 @@ select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000011'
 select pg_temp.assert_true((select count(*)=1 from public.profiles),'teacher A profile isolation');
 select pg_temp.assert_true((select count(*)=1 from public.teachers),'teacher A record isolation');
 select pg_temp.assert_true((select count(*)=1 from public.teacher_assignments),'teacher A assignment isolation');
+select pg_temp.assert_true((select count(*)=2 from public.section_components),'teacher A component isolation');
 select pg_temp.assert_true((select count(*)=1 from public.schedules),'teacher A schedule isolation');
+select pg_temp.assert_true((select day_of_week='domingo' from public.schedules),'Sunday is a valid schedule day');
 select pg_temp.assert_true((select count(*)=2 from public.activities),'teacher A targeted activities');
 select pg_temp.assert_true((select count(*)=1 from public.activity_responses),'teacher A response isolation');
 select pg_temp.assert_true((select count(*)=1 from public.evidence),'teacher A evidence isolation');
@@ -190,6 +215,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000012',true);
 select pg_temp.assert_true((select count(*)=1 from public.profiles),'teacher B profile isolation');
 select pg_temp.assert_true((select count(*)=1 from public.teacher_assignments),'teacher B assignment isolation');
+select pg_temp.assert_true((select count(*)=1 from public.section_components),'teacher B component isolation');
 select pg_temp.assert_true((select count(*)=1 from public.schedules),'teacher B schedule isolation');
 select pg_temp.assert_true((select count(*)=2 from public.activities),'teacher B targeted activities');
 select pg_temp.assert_true((select count(*)=1 from public.activity_responses),'teacher B response isolation');
@@ -202,7 +228,13 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',true);
 select pg_temp.assert_true((select count(*)=3 from public.profiles),'coordination reads profiles');
-select pg_temp.assert_true((select count(*)=2 from public.teachers),'coordination reads teachers');
+select pg_temp.assert_true((select count(*)=3 from public.teachers),'coordination reads linked and unlinked teachers');
+update public.teachers set active=false where id='20000000-0000-4000-8000-000000000099';
+select pg_temp.assert_true(
+  (select active=false from public.teachers where id='20000000-0000-4000-8000-000000000099'),
+  'coordination manages an academic teacher before Auth linkage'
+);
+select pg_temp.assert_true((select count(*)=3 from public.section_components),'coordination reads section components');
 select pg_temp.assert_true((select count(*)=3 from public.activities),'coordination reads activities');
 select pg_temp.assert_true((select count(*)=2 from public.activity_responses),'coordination reads responses');
 select pg_temp.assert_true((select count(*)=3 from public.announcements),'coordination reads announcements');

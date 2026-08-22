@@ -40,3 +40,6 @@ yarn-error.log*
 /work/
 /.pnpm-store/
 *.tsbuildinfo
+
+# Private academic imports generated from source workbooks (may contain identifiers)
+/supabase/private-imports/
