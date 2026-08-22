@@ -202,7 +202,12 @@ function PageTitle({ eyebrow, title, copy, action }: { eyebrow?: string; title: 
 }
 
 function TeacherHome({ done, blocks, name }: { done: number[]; blocks: AcademicBlock[]; name: string }) {
-  const currentDate = new Intl.DateTimeFormat("es-PE", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toLocaleUpperCase("es-PE");
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const timer=window.setInterval(()=>setNow(new Date()),60_000); return ()=>window.clearInterval(timer); },[]);
+  const currentDate = new Intl.DateTimeFormat("es-PE", { timeZone:"America/Lima", weekday: "long", day: "numeric", month: "long" }).format(now).toLocaleUpperCase("es-PE");
+  const teacherName = blocks[0]?.teacherName || name;
+  const firstName = teacherName.trim().split(/\s+/)[0];
+  const greeting = limaGreeting(now);
   const courseCount = new Set(blocks.map((block) => block.courseId)).size;
   const sectionCount = new Set(blocks.map((block) => block.sectionId)).size;
   const theoryCount = blocks.filter((block)=>block.component==="teoría").length;
@@ -211,7 +216,7 @@ function TeacherHome({ done, blocks, name }: { done: number[]; blocks: AcademicB
   const upcoming = [...blocks].sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day)||a.startTime.localeCompare(b.startTime)).slice(0,6);
   void done;
   return <>
-    <PageTitle eyebrow={currentDate} title={`¡Buenos días, ${name.split(" ")[0]}!`} copy={`Tienes ${courseCount} cursos y ${sectionCount} secciones asignadas en 2026-II.`} />
+    <PageTitle eyebrow={currentDate} title={`¡${greeting}, ${firstName}!`} copy={`Tienes ${courseCount} cursos y ${sectionCount} secciones asignadas en 2026-II.`} />
     <section className="stats teacher-stats">
       <Stat icon="▤" value={String(courseCount)} label="Cursos asignados" tone="navy"/><Stat icon="▣" value={String(sectionCount)} label="Secciones" tone="green"/><Stat icon="T" value={String(theoryCount)} label="Bloques de teoría" tone="blue"/><Stat icon="P" value={String(practiceCount)} label="Bloques de práctica" tone="orange"/>
     </section>
@@ -257,6 +262,7 @@ function formatTime(value:string){return value.slice(0,5)}
 function timeToMinutes(value:string){const [hours,minutes]=value.slice(0,5).split(":").map(Number);return hours*60+minutes}
 function minutesToTime(value:number){return `${String(Math.floor(value/60)).padStart(2,"0")}:${String(value%60).padStart(2,"0")}`}
 function courseTone(courseId:string){let hash=0;for(const char of courseId)hash=(hash*31+char.charCodeAt(0))>>>0;return hash%8}
+function limaGreeting(date:Date){const hour=Number(new Intl.DateTimeFormat("en-US",{timeZone:"America/Lima",hour:"2-digit",hourCycle:"h23"}).format(date));return hour>=5&&hour<12?"Buenos días":hour>=12&&hour<19?"Buenas tardes":"Buenas noches"}
 function capitalize(value:string){return value.charAt(0).toUpperCase()+value.slice(1)}
 function EmptyProgramming(){return <section className="panel empty-programming"><b>Sin programación vinculada</b><p>La cuenta está activa, pero todavía no está enlazada con un registro docente.</p></section>}
 
