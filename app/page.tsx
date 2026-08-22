@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getAcademicBlocks, getSessionProfile, type AcademicBlock, type SessionProfile } from "@/lib/academic";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
@@ -22,6 +22,8 @@ const activities = [
   { id: 3, name: "Capacitación de aula virtual", desc: "Visualiza la inducción y adjunta la constancia correspondiente.", published: "01 ago 2026", due: "10 ago 2026", status: "Vencida" as Status },
   { id: 4, name: "Registrar plan de primera semana", desc: "Comparte las actividades previstas para el inicio de clases.", published: "13 ago 2026", due: "22 ago 2026", status: "Pendiente" as Status },
 ];
+
+const TEACHER_VIEW_KEY = "eegg-portal-view";
 
 export default function Home() {
   const [role, setRole] = useState<Role>("docente");
@@ -52,10 +54,15 @@ export default function Home() {
         const nextBlocks = await getAcademicBlocks();
         if (!activeRequest) return;
         const nextRole: Role = nextProfile.role === "coordinacion" ? "admin" : "docente";
+        const storedView = window.sessionStorage.getItem(TEACHER_VIEW_KEY);
+        const useTeacherView = nextRole === "admin" && storedView === "docente";
         setProfile(nextProfile);
         setRole(nextRole);
-        setViewAsTeacher(false);
-        setActive(nextRole === "admin" ? "Dashboard general" : "Inicio");
+        setViewAsTeacher(useTeacherView);
+        setActive((current) => {
+          const allowed = useTeacherView || nextRole === "docente" ? teacherNav : adminNav;
+          return allowed.includes(current) ? current : useTeacherView || nextRole === "docente" ? "Inicio" : "Dashboard general";
+        });
         setBlocks(nextBlocks);
         setAuthError("");
       } catch (error) {
@@ -78,6 +85,17 @@ export default function Home() {
   }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
   async function logout() { await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
+  function enterTeacherView() {
+    if (role !== "admin") return;
+    window.sessionStorage.setItem(TEACHER_VIEW_KEY, "docente");
+    setViewAsTeacher(true);
+    setActive("Inicio");
+  }
+  function exitTeacherView() {
+    window.sessionStorage.setItem(TEACHER_VIEW_KEY, "coordinacion");
+    setViewAsTeacher(false);
+    setActive("Dashboard general");
+  }
   async function finishInvitation(password: string) {
     setLoading(true); setAuthError("");
     const { error } = await supabase.auth.updateUser({ password });
@@ -109,7 +127,7 @@ export default function Home() {
         </div>
       </main>
       {menuOpen && <button className="backdrop" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
-      <div className="role-switch">{role === "admin" && <button onClick={() => { const next=!viewAsTeacher; setViewAsTeacher(next); setActive(next?"Inicio":"Dashboard general"); }}>{viewAsTeacher ? "Volver a Coordinación" : "Ver mi vista docente"}</button>}<button onClick={logout}>Cerrar sesión</button></div>
+      <div className="role-switch">{role === "admin" && <button className={viewAsTeacher ? "return-coordination" : ""} onClick={viewAsTeacher ? exitTeacherView : enterTeacherView}>{viewAsTeacher ? "← Volver a Coordinación" : "Ver mi vista docente"}</button>}<button onClick={logout}>Cerrar sesión</button></div>
       {toast && <div className="toast"><b>✓</b><span><strong>¡Registro exitoso!</strong>{toast}</span></div>}
     </div>
   );
@@ -219,11 +237,26 @@ function Courses({ blocks }: { blocks: AcademicBlock[] }) {
 function Schedule({ blocks }: { blocks: AcademicBlock[] }) {
   const order = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
   const sorted = [...blocks].sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day)||a.startTime.localeCompare(b.startTime));
-  return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Programación oficial del ciclo 2026-II."/><section className="panel table-wrap academic-table"><table><thead><tr>{["Día","Horario","Curso","Sección","Componente","Clase","Instalación","Modalidad"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{sorted.map(block=><tr key={`${block.assignmentId}-${block.classNumber}-${block.day}`}><td><b>{capitalize(block.day)}</b></td><td>{formatTime(block.startTime)}–{formatTime(block.endTime)}</td><td><b>{block.courseName}</b><small className="table-code">{block.courseCode}</small></td><td>{block.sectionCode}<small className="table-code">Origen: {block.originalSection}</small></td><td><span className="badge">{capitalize(block.component)}</span></td><td>{block.classNumber}</td><td>{block.classroom || "Por confirmar"}</td><td>{block.modality || "Por confirmar"}</td></tr>)}</tbody></table></section>{sorted.length===0&&<EmptyProgramming/>}</>;
+  const startMinute = 7 * 60;
+  const latestEnd = Math.max(startMinute + 45, ...blocks.map((block) => timeToMinutes(block.endTime)));
+  const slotCount = Math.ceil((latestEnd - startMinute) / 45);
+  const slots = Array.from({length:slotCount},(_,index)=>startMinute+index*45);
+  return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Programación oficial del ciclo 2026-II."/>
+    <section className="panel weekly-schedule-wrap" aria-label="Horario académico semanal"><div className="weekly-schedule" style={{"--schedule-rows":slotCount} as CSSProperties}>
+      <div className="schedule-corner">Hora</div>
+      {order.map((day,index)=><div className="schedule-day" style={{gridColumn:index+2}} key={day}>{capitalize(day)}</div>)}
+      {slots.map((minute,index)=><div className="schedule-time" style={{gridRow:index+2}} key={minute}><b>{minutesToTime(minute)}</b><span>{minutesToTime(minute+45)}</span></div>)}
+      {order.flatMap((day,dayIndex)=>slots.map((minute,rowIndex)=><div className="schedule-cell" style={{gridColumn:dayIndex+2,gridRow:rowIndex+2}} key={`${day}-${minute}`}/>))}
+      {sorted.map((block)=>{const rowStart=Math.floor((timeToMinutes(block.startTime)-startMinute)/45)+2;const span=Math.max(1,Math.ceil((timeToMinutes(block.endTime)-timeToMinutes(block.startTime))/45));return <article className={`schedule-class course-tone-${courseTone(block.courseId)}`} style={{gridColumn:order.indexOf(block.day)+2,gridRow:`${rowStart} / span ${span}`}} key={`${block.assignmentId}-${block.classNumber}-${block.day}-${block.startTime}`}><strong>{block.courseName}</strong><span>Sección {block.sectionCode} · {capitalize(block.component)}</span><span>Clase {block.classNumber}</span><span>{formatTime(block.startTime)}–{formatTime(block.endTime)}</span><small>{block.classroom||"Por confirmar"} · {block.modality||"Por confirmar"}</small></article>})}
+    </div></section>
+    <section className="panel table-wrap academic-table schedule-detail"><PanelHead title="Detalle de mi programación"/><table><thead><tr>{["Día","Horario","Curso","Sección","Componente","Clase","Instalación","Modalidad"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{sorted.map(block=><tr key={`${block.assignmentId}-${block.classNumber}-${block.day}`}><td><b>{capitalize(block.day)}</b></td><td>{formatTime(block.startTime)}–{formatTime(block.endTime)}</td><td><b>{block.courseName}</b><small className="table-code">{block.courseCode}</small></td><td>{block.sectionCode}<small className="table-code">Origen: {block.originalSection}</small></td><td><span className="badge">{capitalize(block.component)}</span></td><td>{block.classNumber}</td><td>{block.classroom || "Por confirmar"}</td><td>{block.modality || "Por confirmar"}</td></tr>)}</tbody></table></section>{sorted.length===0&&<EmptyProgramming/>}</>;
 }
 
 function AcademicRows({blocks}:{blocks:AcademicBlock[]}){const rows=[...blocks].sort((a,b)=>a.teacherName.localeCompare(b.teacherName)||a.courseName.localeCompare(b.courseName)||a.classNumber-b.classNumber);return <table><thead><tr>{["Docente","Curso","Sección","Componente","Clase","Día y hora","Instalación","Modalidad"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{rows.map(b=><tr key={`${b.assignmentId}-${b.classNumber}-${b.day}`}><td><b>{b.teacherName}</b></td><td>{b.courseName}<small className="table-code">{b.courseCode}</small></td><td>{b.sectionCode}<small className="table-code">Origen: {b.originalSection}</small></td><td><span className="badge">{capitalize(b.component)}</span></td><td>{b.classNumber}</td><td>{capitalize(b.day)} · {formatTime(b.startTime)}–{formatTime(b.endTime)}</td><td>{b.classroom||"Por confirmar"}</td><td>{b.modality||"Por confirmar"}</td></tr>)}</tbody></table>}
 function formatTime(value:string){return value.slice(0,5)}
+function timeToMinutes(value:string){const [hours,minutes]=value.slice(0,5).split(":").map(Number);return hours*60+minutes}
+function minutesToTime(value:number){return `${String(Math.floor(value/60)).padStart(2,"0")}:${String(value%60).padStart(2,"0")}`}
+function courseTone(courseId:string){let hash=0;for(const char of courseId)hash=(hash*31+char.charCodeAt(0))>>>0;return hash%8}
 function capitalize(value:string){return value.charAt(0).toUpperCase()+value.slice(1)}
 function EmptyProgramming(){return <section className="panel empty-programming"><b>Sin programación vinculada</b><p>La cuenta está activa, pero todavía no está enlazada con un registro docente.</p></section>}
 
