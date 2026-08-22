@@ -5,11 +5,13 @@ export interface SessionProfile {
   id: string;
   role: AppRole;
   fullName: string;
+  institutionalEmail: string;
 }
 
 export interface AcademicBlock {
   assignmentId: string;
   teacherId: string;
+  teacherProfileId: string | null;
   teacherName: string;
   teacherEmail: string | null;
   courseId: string;
@@ -51,7 +53,7 @@ interface QueryComponent {
 
 interface QueryAssignment {
   id: string;
-  teacher: { id: string; display_name: string; institutional_email: string | null };
+  teacher: { id: string; profile_id: string | null; display_name: string; institutional_email: string | null };
   section: {
     id: string;
     section_code: string;
@@ -63,11 +65,11 @@ interface QueryAssignment {
 export async function getSessionProfile(userId: string): Promise<SessionProfile> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, role, full_name")
+    .select("id, role, full_name, institutional_email")
     .eq("id", userId)
     .single();
   if (error) throw error;
-  return { id: data.id, role: data.role as AppRole, fullName: data.full_name };
+  return { id: data.id, role: data.role as AppRole, fullName: data.full_name, institutionalEmail: data.institutional_email };
 }
 
 export async function getAcademicBlocks(): Promise<AcademicBlock[]> {
@@ -75,7 +77,7 @@ export async function getAcademicBlocks(): Promise<AcademicBlock[]> {
     .from("teacher_assignments")
     .select(`
       id,
-      teacher:teachers!inner(id, display_name, institutional_email),
+      teacher:teachers!inner(id, profile_id, display_name, institutional_email),
       section:sections!inner(
         id,
         section_code,
@@ -110,6 +112,7 @@ export async function getAcademicBlocks(): Promise<AcademicBlock[]> {
       component.schedules.map((schedule) => ({
         assignmentId: assignment.id,
         teacherId: assignment.teacher.id,
+        teacherProfileId: assignment.teacher.profile_id,
         teacherName: assignment.teacher.display_name,
         teacherEmail: assignment.teacher.institutional_email,
         courseId: assignment.section.course.id,
