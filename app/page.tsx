@@ -84,7 +84,7 @@ export default function Home() {
     if (error) { setAuthError("Correo o contraseña incorrectos."); setLoading(false); }
   }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
-  async function logout() { await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
+  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
   function enterTeacherView() {
     if (role !== "admin") return;
     window.sessionStorage.setItem(TEACHER_VIEW_KEY, "docente");
