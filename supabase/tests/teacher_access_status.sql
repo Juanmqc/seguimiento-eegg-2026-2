@@ -24,13 +24,14 @@ do $$
 declare
   total integer;
   activated_total integer;
+  recorded_total integer;
 begin
-  select count(*), count(*) filter (where activated)
-  into total, activated_total
+  select count(*), count(*) filter (where activated), count(*) filter (where last_sign_in_at is not null)
+  into total, activated_total, recorded_total
   from public.get_teacher_access_status();
 
-  if total <> 2 or activated_total <> 1 then
-    raise exception 'Coordination projection failed: total %, activated %', total, activated_total;
+  if total <> 2 or activated_total <> 1 or recorded_total <> 0 then
+    raise exception 'Coordination projection failed: total %, activated %, recorded %', total, activated_total, recorded_total;
   end if;
 end;
 $$;
@@ -39,6 +40,8 @@ reset role;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
 set local role authenticated;
 
+select public.record_portal_password_login();
+
 do $$
 begin
   perform * from public.get_teacher_access_status();
@@ -46,6 +49,24 @@ begin
 exception
   when insufficient_privilege then
     null;
+end;
+$$;
+
+reset role;
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+set local role authenticated;
+
+do $$
+declare
+  recorded_total integer;
+begin
+  select count(*) filter (where last_sign_in_at is not null)
+  into recorded_total
+  from public.get_teacher_access_status();
+
+  if recorded_total <> 1 then
+    raise exception 'Real portal login was not recorded exactly once: %', recorded_total;
+  end if;
 end;
 $$;
 
