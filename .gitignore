@@ -43,3 +43,5 @@ yarn-error.log*
 
 # Private academic imports generated from source workbooks (may contain identifiers)
 /supabase/private-imports/
+# Private one-time activation links (never commit or deploy)
+/supabase/private-access/
