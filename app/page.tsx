@@ -2,18 +2,18 @@
 
 import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getAcademicBlocks, getSessionProfile, type AcademicBlock, type SessionProfile } from "@/lib/academic";
+import { getAcademicBlocks, getSessionProfile, getTeacherAccessStatuses, type AcademicBlock, type SessionProfile, type TeacherAccessStatus } from "@/lib/academic";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 type Role = "docente" | "admin";
 type Status = "Pendiente" | "Completada" | "Vencida";
 
 const teacherNav = ["Inicio", "Mis cursos", "Mi horario", "Actividades", "Comunicados", "Documentos", "Tutoriales", "Mi cumplimiento", "Mi perfil"];
-const adminNav = ["Dashboard general", "Docentes", "Actividades", "Comunicados", "Documentos", "Tutoriales", "Reportes"];
+const adminNav = ["Dashboard general", "Docentes", "Acceso de docentes", "Actividades", "Comunicados", "Documentos", "Tutoriales", "Reportes"];
 const icons: Record<string, string> = {
   "Inicio": "⌂", "Mis cursos": "▤", "Mi horario": "◷", "Actividades": "✓", "Comunicados": "◉",
   "Documentos": "▱", "Tutoriales": "▷", "Mi cumplimiento": "◔", "Mi perfil": "♙",
-  "Dashboard general": "⌂", "Docentes": "♧", "Reportes": "▥"
+  "Dashboard general": "⌂", "Docentes": "♧", "Acceso de docentes": "🔐", "Reportes": "▥"
 };
 
 const activities = [
@@ -283,6 +283,7 @@ function Profile({blocks,profile}:{blocks:AcademicBlock[];profile:SessionProfile
 function AdminView({active,blocks}:{active:string;blocks:AcademicBlock[]}) {
  if(active==="Dashboard general") return <AdminDashboard blocks={blocks}/>;
  if(active==="Docentes") return <Teachers blocks={blocks}/>;
+ if(active==="Acceso de docentes") return <TeacherAccess/>;
  if(active==="Actividades") return <AdminActivities/>;
  if(active==="Comunicados") return <AdminAnnouncements/>;
  if(active==="Documentos") return <Documents admin/>;
@@ -293,6 +294,17 @@ function AdminView({active,blocks}:{active:string;blocks:AcademicBlock[]}) {
 function AdminDashboard({blocks}:{blocks:AcademicBlock[]}){const teachers=new Set(blocks.map(b=>b.teacherId)).size;const coursesCount=new Set(blocks.map(b=>b.courseId)).size;const sections=new Set(blocks.map(b=>b.sectionId)).size;const theory=blocks.filter(b=>b.component==="teoría").length;const practice=blocks.filter(b=>b.component==="práctica").length;return <><PageTitle eyebrow="PORTAL DE COORDINACIÓN" title="Dashboard general" copy="Programación oficial · Estudios Básicos y Complementarios · Lima Norte · 2026-II"/><section className="stats admin-stats"><Stat icon="♧" value={String(teachers)} label="Docentes activos" tone="navy"/><Stat icon="▤" value={String(coursesCount)} label="Cursos" tone="blue"/><Stat icon="▣" value={String(sections)} label="Secciones" tone="green"/><Stat icon="◷" value={String(blocks.length)} label="Bloques horarios" tone="orange"/><Stat icon="T" value={String(theory)} label="Teorías" tone="blue"/><Stat icon="P" value={String(practice)} label="Prácticas" tone="red"/></section><section className="panel table-wrap academic-table"><PanelHead title="Programación académica consolidada"/><AcademicRows blocks={blocks}/></section></>}
 
 function Teachers({blocks}:{blocks:AcademicBlock[]}){const [q,setQ]=useState("");const grouped=useMemo(()=>{const map=new Map<string,{name:string;courses:Set<string>;sections:Set<string>;blocks:number}>();for(const b of blocks){const row=map.get(b.teacherId)??{name:b.teacherName,courses:new Set<string>(),sections:new Set<string>(),blocks:0};row.courses.add(b.courseName);row.sections.add(b.sectionCode);row.blocks++;map.set(b.teacherId,row)}return [...map.values()].filter(r=>r.name.toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name));},[blocks,q]);return <><PageTitle eyebrow="EQUIPO ACADÉMICO" title="Docentes" copy="Programación docente real del ciclo 2026-II."/><div className="table-tools"><div className="search">⌕ <input placeholder="Buscar docente..." value={q} onChange={e=>setQ(e.target.value)}/></div></div><section className="panel table-wrap"><table><thead><tr>{["Docente","Cursos","Secciones","Bloques de horario"] .map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{grouped.map(r=><tr key={r.name}><td><span className="table-avatar">{r.name.split(" ").map(x=>x[0]).slice(0,2).join("")}</span><b>{r.name}</b></td><td>{[...r.courses].join(", ")}</td><td>{[...r.sections].join(", ")}</td><td><span className="count green">{r.blocks}</span></td></tr>)}</tbody></table><div className="table-footer">Mostrando {grouped.length} docentes activos</div></section></>}
+
+function TeacherAccess(){
+ const [rows,setRows]=useState<TeacherAccessStatus[]>([]);
+ const [loading,setLoading]=useState(true);
+ const [error,setError]=useState("");
+ useEffect(()=>{let current=true;getTeacherAccessStatuses().then(data=>{if(current)setRows(data)}).catch(reason=>{if(current)setError(reason instanceof Error?reason.message:"No se pudo consultar el estado de acceso.")}).finally(()=>{if(current)setLoading(false)});return()=>{current=false}},[]);
+ const activated=rows.filter(row=>row.activated).length;
+ return <><PageTitle eyebrow="SEGURIDAD Y ACCESO" title="Acceso de docentes" copy="Estado de activación y último ingreso de las cuentas docentes del portal."/><section className="stats access-summary"><Stat icon="✓" value={String(activated)} label="Cuentas activadas" tone="green"/><Stat icon="◷" value={String(rows.length-activated)} label="Activación pendiente" tone="orange"/></section><section className="panel table-wrap access-table">{loading?<div className="access-message">Consultando accesos…</div>:error?<div className="access-message error">No fue posible consultar esta información. {error}</div>:<><table><thead><tr><th>Docente</th><th>Correo institucional</th><th>Estado de cuenta</th><th>Último acceso</th></tr></thead><tbody>{rows.map(row=><tr key={row.teacherId}><td><span className="table-avatar">{row.fullName.split(" ").map(part=>part[0]).slice(0,2).join("")}</span><b>{row.fullName}</b></td><td>{row.institutionalEmail}</td><td><span className={`account-status ${row.activated?"activated":"pending"}`}><i aria-hidden="true"/>{row.activated?"Activada":"Pendiente"}</span></td><td>{formatLastAccess(row.lastSignInAt)}</td></tr>)}</tbody></table><div className="table-footer">Mostrando {rows.length} cuentas docentes</div></>}</section></>;
+}
+
+function formatLastAccess(value:string|null){if(!value)return "Sin ingreso registrado";return new Intl.DateTimeFormat("es-PE",{dateStyle:"medium",timeStyle:"short",timeZone:"America/Lima"}).format(new Date(value));}
 
 function AdminActivities(){return <><PageTitle eyebrow="GESTIÓN ACADÉMICA" title="Actividades" copy="Crea, asigna y supervisa las actividades del equipo docente." action={<button className="primary">＋ Nueva actividad</button>}/><div className="filter-row"><button className="active">Todas <b>12</b></button><button>Activas <b>7</b></button><button>Finalizadas <b>4</b></button><button>Borradores <b>1</b></button></div><div className="assignment-options"><span>Asignar a:</span><button>Todos los docentes</button><button>Por curso</button><button>Docentes específicos</button></div><div className="admin-activity-grid">{activities.map((a,i)=><article className="panel admin-activity" key={a.id}><div><span className={`badge ${i===2?"vencida":"pendiente"}`}>{i===2?"FINALIZADA":"ACTIVA"}</span><button>•••</button></div><h2>{a.name}</h2><p>{a.desc}</p><div className="assignment"><span><small>ASIGNACIÓN</small><b>{i===3?"18 docentes":"Todos los docentes"}</b></span><span><small>FECHA LÍMITE</small><b>{a.due}</b></span></div><div className="completion"><span><b>{[32,41,48,12][i]} de {i===3?18:48}</b> cumplieron</span><b>{[67,85,100,67][i]}%</b><i><em style={{width:`${[67,85,100,67][i]}%`}}/></i></div><div className="activity-status-summary"><span className="done">✓ Cumplieron</span><span className="waiting">◷ Pendientes</span><span className="late">! Vencidos</span></div><div className="card-footer"><button>Editar</button><button>Ver cumplimiento →</button></div></article>)}</div></>}
 

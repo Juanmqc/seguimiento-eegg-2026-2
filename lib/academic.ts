@@ -36,6 +36,22 @@ export interface CoordinatorContact {
   institutionalEmail: string | null;
 }
 
+export interface TeacherAccessStatus {
+  teacherId: string;
+  fullName: string;
+  institutionalEmail: string;
+  activated: boolean;
+  lastSignInAt: string | null;
+}
+
+interface TeacherAccessStatusRow {
+  teacher_id: string;
+  full_name: string;
+  institutional_email: string;
+  activated: boolean;
+  last_sign_in_at: string | null;
+}
+
 interface QuerySchedule {
   day_of_week: Weekday;
   start_time: string;
@@ -132,4 +148,17 @@ export async function getAcademicBlocks(): Promise<AcademicBlock[]> {
       })),
     ),
   );
+}
+
+export async function getTeacherAccessStatuses(): Promise<TeacherAccessStatus[]> {
+  const { data, error } = await supabase.rpc("get_teacher_access_status");
+  if (error) throw error;
+
+  return (data as TeacherAccessStatusRow[]).map((row) => ({
+    teacherId: row.teacher_id,
+    fullName: row.full_name,
+    institutionalEmail: row.institutional_email,
+    activated: row.activated,
+    lastSignInAt: row.last_sign_in_at,
+  }));
 }
