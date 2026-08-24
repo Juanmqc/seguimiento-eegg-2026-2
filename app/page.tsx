@@ -25,6 +25,7 @@ const activities = [
 
 const TEACHER_VIEW_KEY = "eegg-portal-view";
 const PORTAL_ACCESS_KEY = "eegg-explicit-portal-access";
+const LOGIN_AUDIT_PENDING_KEY = "eegg-login-audit-pending";
 
 export default function Home() {
   const [role, setRole] = useState<Role>("docente");
@@ -41,6 +42,20 @@ export default function Home() {
 
   useEffect(() => {
     let activeRequest = true;
+    async function recordPendingLogin() {
+      if (window.sessionStorage.getItem(LOGIN_AUDIT_PENDING_KEY) !== "pending") return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await recordPortalPasswordLogin(data.session.access_token);
+          window.sessionStorage.removeItem(LOGIN_AUDIT_PENDING_KEY);
+          return;
+        } catch {
+          if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
+        }
+      }
+    }
     async function loadUser(user: User | null) {
       if (!user) {
         if (activeRequest) { setProfile(null); setBlocks([]); setLoading(false); }
@@ -58,6 +73,7 @@ export default function Home() {
       try {
         const nextProfile = await getSessionProfile(user.id);
         const nextBlocks = await getAcademicBlocks();
+        await recordPendingLogin();
         if (!activeRequest) return;
         const nextRole: Role = nextProfile.role === "coordinacion" ? "admin" : "docente";
         const storedView = window.sessionStorage.getItem(TEACHER_VIEW_KEY);
@@ -90,20 +106,13 @@ export default function Home() {
     if (error) { setAuthError("Correo o contraseña incorrectos."); setLoading(false); }
     else if (!data.session) { setAuthError("No se pudo establecer una sesión segura."); setLoading(false); }
     else {
-      try {
-        await recordPortalPasswordLogin(data.session.access_token);
-        window.sessionStorage.setItem(PORTAL_ACCESS_KEY, "granted");
-        window.history.replaceState({}, "", "/?portal=1");
-        window.location.reload();
-      } catch {
-        await supabase.auth.signOut();
-        setAuthError("Las credenciales son correctas, pero no se pudo registrar el acceso. Intenta nuevamente.");
-        setLoading(false);
-      }
+      window.sessionStorage.setItem(PORTAL_ACCESS_KEY, "granted");
+      window.sessionStorage.setItem(LOGIN_AUDIT_PENDING_KEY, "pending");
+      window.location.replace("/?portal=1");
     }
   }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
-  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); window.sessionStorage.removeItem(PORTAL_ACCESS_KEY); await supabase.auth.signOut(); window.history.replaceState({}, "", "/"); setProfile(null); setBlocks([]); }
+  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); window.sessionStorage.removeItem(PORTAL_ACCESS_KEY); window.sessionStorage.removeItem(LOGIN_AUDIT_PENDING_KEY); await supabase.auth.signOut(); window.history.replaceState({}, "", "/"); setProfile(null); setBlocks([]); }
   function enterTeacherView() {
     if (role !== "admin") return;
     window.sessionStorage.setItem(TEACHER_VIEW_KEY, "docente");
@@ -120,6 +129,7 @@ export default function Home() {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) { setAuthError(error.message); setLoading(false); return; }
     window.sessionStorage.removeItem(PORTAL_ACCESS_KEY);
+    window.sessionStorage.removeItem(LOGIN_AUDIT_PENDING_KEY);
     window.history.replaceState({}, "", "/");
     window.location.reload();
   }
