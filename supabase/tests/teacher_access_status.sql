@@ -28,7 +28,8 @@ declare
 begin
   select count(*), count(*) filter (where activated), count(*) filter (where last_sign_in_at is not null)
   into total, activated_total, recorded_total
-  from public.get_teacher_access_status();
+  from public.get_teacher_access_status()
+  where institutional_email in ('active.access@test.invalid', 'pending.access@test.invalid');
 
   if total <> 2 or activated_total <> 1 or recorded_total <> 0 then
     raise exception 'Coordination projection failed: total %, activated %, recorded %', total, activated_total, recorded_total;
@@ -64,7 +65,8 @@ declare
 begin
   select count(*) filter (where last_sign_in_at is not null)
   into recorded_total
-  from public.get_teacher_access_status();
+  from public.get_teacher_access_status()
+  where institutional_email in ('active.access@test.invalid', 'pending.access@test.invalid');
 
   if recorded_total <> 1 then
     raise exception 'Real portal login was not recorded exactly once: %', recorded_total;

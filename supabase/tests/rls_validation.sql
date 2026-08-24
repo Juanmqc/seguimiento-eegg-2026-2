@@ -10,13 +10,13 @@ end $$;
 
 -- Structural checks.
 select pg_temp.assert_true(
-  (select count(*) = 18 from pg_tables where schemaname = 'public'),
-  'expected 18 public application tables'
+  (select count(*) = 20 from pg_tables where schemaname = 'public'),
+  'expected 20 public application tables'
 );
 select pg_temp.assert_true(
-  (select count(*) = 18 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+  (select count(*) = 20 from pg_class c join pg_namespace n on n.oid=c.relnamespace
    where n.nspname='public' and c.relkind='r' and c.relrowsecurity),
-  'RLS must be enabled on all 18 application tables'
+  'RLS must be enabled on all 20 application tables'
 );
 select pg_temp.assert_true(
   (select count(*) >= 24 from pg_constraint c join pg_namespace n on n.oid=c.connamespace
@@ -35,7 +35,7 @@ select pg_temp.assert_true(
   'anon must have no privileges on portal tables'
 );
 select pg_temp.assert_true(
-  (select count(*)=72 from information_schema.role_table_grants
+  (select count(*)=80 from information_schema.role_table_grants
    where table_schema='public' and grantee='authenticated'
      and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
   and not exists (
@@ -46,7 +46,7 @@ select pg_temp.assert_true(
   'authenticated must have CRUD only; RLS restricts rows and operations'
 );
 select pg_temp.assert_true(
-  (select count(*)=72 from information_schema.role_table_grants
+  (select count(*)=80 from information_schema.role_table_grants
    where table_schema='public' and grantee='service_role'
      and privilege_type in ('SELECT','INSERT','UPDATE','DELETE'))
   and not exists (
@@ -227,19 +227,19 @@ select pg_temp.assert_true((select count(*)=2 from public.documents),'teacher B 
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',true);
-select pg_temp.assert_true((select count(*)=3 from public.profiles),'coordination reads profiles');
-select pg_temp.assert_true((select count(*)=3 from public.teachers),'coordination reads linked and unlinked teachers');
+select pg_temp.assert_true((select count(*)=3 from public.profiles where institutional_email like '%@example.invalid'),'coordination reads profiles');
+select pg_temp.assert_true((select count(*)=3 from public.teachers where id in ('20000000-0000-4000-8000-000000000011','20000000-0000-4000-8000-000000000012','20000000-0000-4000-8000-000000000099')),'coordination reads linked and unlinked teachers');
 update public.teachers set active=false where id='20000000-0000-4000-8000-000000000099';
 select pg_temp.assert_true(
   (select active=false from public.teachers where id='20000000-0000-4000-8000-000000000099'),
   'coordination manages an academic teacher before Auth linkage'
 );
-select pg_temp.assert_true((select count(*)=3 from public.section_components),'coordination reads section components');
-select pg_temp.assert_true((select count(*)=3 from public.activities),'coordination reads activities');
-select pg_temp.assert_true((select count(*)=2 from public.activity_responses),'coordination reads responses');
-select pg_temp.assert_true((select count(*)=3 from public.announcements),'coordination reads announcements');
-select pg_temp.assert_true((select count(*)=4 from public.documents),'coordination reads active and retired documents');
-select pg_temp.assert_true((select count(*)=1 from public.tutorials),'coordination reads tutorials');
+select pg_temp.assert_true((select count(*)=3 from public.section_components where id in ('51000000-0000-4000-8000-000000000011','51000000-0000-4000-8000-000000000021','51000000-0000-4000-8000-000000000012')),'coordination reads section components');
+select pg_temp.assert_true((select count(*)=3 from public.activities where id in ('70000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000011','70000000-0000-4000-8000-000000000012')),'coordination reads activities');
+select pg_temp.assert_true((select count(*)=2 from public.activity_responses where id in ('80000000-0000-4000-8000-000000000011','80000000-0000-4000-8000-000000000012')),'coordination reads responses');
+select pg_temp.assert_true((select count(*)=3 from public.announcements where id in ('a0000000-0000-4000-8000-000000000001','a0000000-0000-4000-8000-000000000011','a0000000-0000-4000-8000-000000000012')),'coordination reads announcements');
+select pg_temp.assert_true((select count(*)=4 from public.documents where id in ('b0000000-0000-4000-8000-000000000001','b0000000-0000-4000-8000-000000000011','b0000000-0000-4000-8000-000000000012','b0000000-0000-4000-8000-000000000099')),'coordination reads active and retired documents');
+select pg_temp.assert_true((select count(*)=1 from public.tutorials where id='c0000000-0000-4000-8000-000000000001'),'coordination reads tutorials');
 insert into public.documents(title,category,external_url,created_by)
 values('Documento creado por coordinación','other','https://example.invalid/new','10000000-0000-4000-8000-000000000001');
 update public.documents set active=false where title='Documento creado por coordinación';

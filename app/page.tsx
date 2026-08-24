@@ -173,7 +173,21 @@ function Login({ login, loading, error, configured }: { login: (email: string, p
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
   function submit(event: FormEvent) { event.preventDefault(); void login(email, password); }
+  async function requestRecovery(event: FormEvent) {
+    event.preventDefault();
+    setRecoveryLoading(true); setRecoveryError(""); setRecoveryMessage("");
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/?set-password=1`,
+    });
+    if (resetError) setRecoveryError(resetError.status === 429 ? "Se alcanzó temporalmente el límite de envíos. Espera unos minutos e intenta nuevamente." : "No se pudo solicitar la recuperación. Intenta nuevamente.");
+    else setRecoveryMessage("Si el correo corresponde a una cuenta del portal, recibirás un enlace para establecer una nueva contraseña.");
+    setRecoveryLoading(false);
+  }
   return <div className="login-page">
     <section className="login-brand">
       <div className="text-university-mark"><span>Universidad</span><strong>Norbert Wiener</strong></div>
@@ -188,17 +202,19 @@ function Login({ login, loading, error, configured }: { login: (email: string, p
       <small className="internal-tool-note">HERRAMIENTA INTERNA DE SEGUIMIENTO DOCENTE</small>
     </section>
     <section className="login-panel">
-      <form className="login-card" onSubmit={submit}>
+      <form className="login-card" onSubmit={recoveryMode ? requestRecovery : submit}>
         <div className="mobile-logo"><div className="text-university-mark"><span>Universidad</span><strong>Norbert Wiener</strong></div></div>
         <span className="login-institution">UNIVERSIDAD NORBERT WIENER</span>
-        <h2>Portal de Seguimiento<br/>Docente</h2>
-        <p className="subtitle">Estudios Generales — Lima Norte — 2026-II</p>
-        <div className="login-role-info"><b>Acceso único</b><span>El portal identifica automáticamente tu perfil institucional.</span></div>
+        <h2>{recoveryMode ? <>Recupera tu<br/>contraseña</> : <>Portal de Seguimiento<br/>Docente</>}</h2>
+        <p className="subtitle">{recoveryMode ? "Solicita un enlace seguro usando tu correo institucional." : "Estudios Generales — Lima Norte — 2026-II"}</p>
+        {!recoveryMode && <div className="login-role-info"><b>Acceso único</b><span>El portal identifica automáticamente tu perfil institucional.</span></div>}
         <label>Correo institucional<div className="input-wrap"><span aria-hidden="true">●</span><input required type="email" autoComplete="username" placeholder="nombre@dominio.edu.pe" value={email} onChange={(e)=>setEmail(e.target.value)} /></div></label>
-        <label>Contraseña<div className="input-wrap"><span aria-hidden="true">◆</span><input required autoComplete="current-password" type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e)=>setPassword(e.target.value)}/><button type="button" aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "◌" : "◉"}</button></div></label>
-        <div className="login-meta"><label><input type="checkbox"/> Recordarme</label><a href="#demo">¿Olvidaste tu contraseña?</a></div>
-        <button className="primary login-button" disabled={loading || !configured}>{loading ? "Verificando…" : "Iniciar sesión"} <span>→</span></button>
-        {(error || !configured) && <div className="demo-note login-error"><b>!</b><span><strong>No se pudo iniciar sesión</strong>{error || "Falta configurar la conexión pública con Supabase."}</span></div>}
+        {!recoveryMode && <><label>Contraseña<div className="input-wrap"><span aria-hidden="true">◆</span><input required autoComplete="current-password" type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e)=>setPassword(e.target.value)}/><button type="button" aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "◌" : "◉"}</button></div></label><div className="login-meta"><label><input type="checkbox"/> Recordarme</label><button type="button" className="forgot-password" onClick={()=>{setRecoveryMode(true);setRecoveryError("");setRecoveryMessage("")}}>¿Olvidaste tu contraseña?</button></div></>}
+        <button className="primary login-button" disabled={loading || recoveryLoading || !configured}>{recoveryMode ? (recoveryLoading ? "Enviando…" : "Enviar enlace de recuperación") : (loading ? "Verificando…" : "Iniciar sesión")} <span>→</span></button>
+        {!recoveryMode && (error || !configured) && <div className="demo-note login-error"><b>!</b><span><strong>No se pudo iniciar sesión</strong>{error || "Falta configurar la conexión pública con Supabase."}</span></div>}
+        {recoveryError && <div className="demo-note login-error"><b>!</b><span><strong>No se pudo enviar</strong>{recoveryError}</span></div>}
+        {recoveryMessage && <div className="demo-note recovery-success"><b>✓</b><span><strong>Solicitud recibida</strong>{recoveryMessage}</span></div>}
+        {recoveryMode && <button type="button" className="back-to-login" onClick={()=>{setRecoveryMode(false);setRecoveryError("");setRecoveryMessage("")}}>← Volver al inicio de sesión</button>}
         <small className="support">¿Necesitas ayuda? <a href="mailto:soporte@universidad.edu.pe">Contacta a soporte</a></small>
       </form>
     </section>
