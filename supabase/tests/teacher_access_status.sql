@@ -40,7 +40,7 @@ reset role;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
 set local role authenticated;
 
-select public.record_portal_password_login();
+select public.record_portal_password_login_v2();
 
 do $$
 begin
@@ -55,6 +55,8 @@ $$;
 reset role;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
 set local role authenticated;
+
+select public.record_portal_password_login_v2();
 
 do $$
 declare

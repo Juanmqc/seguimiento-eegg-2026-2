@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getAcademicBlocks, getSessionProfile, getTeacherAccessStatuses, type AcademicBlock, type SessionProfile, type TeacherAccessStatus } from "@/lib/academic";
-import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { recordPortalPasswordLogin, supabase, supabaseConfigured } from "@/lib/supabase";
 
 type Role = "docente" | "admin";
 type Status = "Pendiente" | "Completada" | "Vencida";
@@ -24,6 +24,7 @@ const activities = [
 ];
 
 const TEACHER_VIEW_KEY = "eegg-portal-view";
+const PORTAL_ACCESS_KEY = "eegg-explicit-portal-access";
 
 export default function Home() {
   const [role, setRole] = useState<Role>("docente");
@@ -47,6 +48,10 @@ export default function Home() {
       }
       if (new URLSearchParams(window.location.search).get("set-password") === "1") {
         if (activeRequest) { setPasswordSetup(true); setLoading(false); }
+        return;
+      }
+      if (window.sessionStorage.getItem(PORTAL_ACCESS_KEY) !== "granted") {
+        if (activeRequest) { setProfile(null); setBlocks([]); setLoading(false); }
         return;
       }
       try {
@@ -80,12 +85,23 @@ export default function Home() {
 
   async function login(email: string, password: string) {
     setLoading(true); setAuthError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) { setAuthError("Correo o contraseña incorrectos."); setLoading(false); }
-    else { await supabase.rpc("record_portal_password_login"); }
+    else if (!data.session) { setAuthError("No se pudo establecer una sesión segura."); setLoading(false); }
+    else {
+      try {
+        await recordPortalPasswordLogin(data.session.access_token);
+        window.sessionStorage.setItem(PORTAL_ACCESS_KEY, "granted");
+        window.location.reload();
+      } catch {
+        await supabase.auth.signOut();
+        setAuthError("Las credenciales son correctas, pero no se pudo registrar el acceso. Intenta nuevamente.");
+        setLoading(false);
+      }
+    }
   }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
-  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
+  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); window.sessionStorage.removeItem(PORTAL_ACCESS_KEY); await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
   function enterTeacherView() {
     if (role !== "admin") return;
     window.sessionStorage.setItem(TEACHER_VIEW_KEY, "docente");
@@ -101,6 +117,7 @@ export default function Home() {
     setLoading(true); setAuthError("");
     const { error } = await supabase.auth.updateUser({ password });
     if (error) { setAuthError(error.message); setLoading(false); return; }
+    window.sessionStorage.removeItem(PORTAL_ACCESS_KEY);
     window.history.replaceState({}, "", "/");
     window.location.reload();
   }
