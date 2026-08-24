@@ -50,7 +50,8 @@ export default function Home() {
         if (activeRequest) { setPasswordSetup(true); setLoading(false); }
         return;
       }
-      if (window.sessionStorage.getItem(PORTAL_ACCESS_KEY) !== "granted") {
+      const isPortalNavigation = new URLSearchParams(window.location.search).get("portal") === "1";
+      if (!isPortalNavigation || window.sessionStorage.getItem(PORTAL_ACCESS_KEY) !== "granted") {
         if (activeRequest) { setProfile(null); setBlocks([]); setLoading(false); }
         return;
       }
@@ -92,6 +93,7 @@ export default function Home() {
       try {
         await recordPortalPasswordLogin(data.session.access_token);
         window.sessionStorage.setItem(PORTAL_ACCESS_KEY, "granted");
+        window.history.replaceState({}, "", "/?portal=1");
         window.location.reload();
       } catch {
         await supabase.auth.signOut();
@@ -101,7 +103,7 @@ export default function Home() {
     }
   }
   function complete(id: number) { setDone((d) => [...new Set([...d, id])]); setToast("Actividad registrada como realizada"); setTimeout(() => setToast(""), 3000); }
-  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); window.sessionStorage.removeItem(PORTAL_ACCESS_KEY); await supabase.auth.signOut(); setProfile(null); setBlocks([]); }
+  async function logout() { window.sessionStorage.removeItem(TEACHER_VIEW_KEY); window.sessionStorage.removeItem(PORTAL_ACCESS_KEY); await supabase.auth.signOut(); window.history.replaceState({}, "", "/"); setProfile(null); setBlocks([]); }
   function enterTeacherView() {
     if (role !== "admin") return;
     window.sessionStorage.setItem(TEACHER_VIEW_KEY, "docente");
