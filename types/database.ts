@@ -205,6 +205,12 @@ export interface DocumentRecord {
   course_id: UUID | null;
   external_url: string | null;
   storage_path: string | null;
+  document_code: string | null;
+  academic_term: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_at: ISODateTime | null;
   active: boolean;
   created_by: UUID | null;
   created_at: ISODateTime;

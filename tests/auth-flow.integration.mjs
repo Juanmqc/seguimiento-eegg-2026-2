@@ -16,6 +16,7 @@ const coordinationEmail = `coord-${suffix}@test.invalid`;
 const password = `Local-only-${suffix}-A9!`;
 const replacementPassword = `Local-new-${suffix}-B8!`;
 const createdUserIds = [];
+const createdAssignmentIds = [];
 
 async function createProfileUser(email, role, withPassword) {
   const { data, error } = withPassword
@@ -75,6 +76,25 @@ try {
   await createProfileUser(pendingEmail, "docente", false);
   await createProfileUser(coordinationEmail, "coordinacion", true);
 
+  const { data: assignedSection, error: sectionError } = await admin
+    .from("sections")
+    .select("id")
+    .eq("course_id", "2b66e09f-e549-5092-b7af-1930e553a028")
+    .eq("academic_term", "2026-II")
+    .limit(1)
+    .single();
+  assert.ifError(sectionError);
+  const assignmentId = crypto.randomUUID();
+  const { error: assignmentError } = await admin.from("teacher_assignments").insert({
+    id: assignmentId,
+    teacher_id: (await admin.from("teachers").select("id").eq("profile_id", teacher.id).single()).data.id,
+    section_id: assignedSection.id,
+    academic_term: "2026-II",
+    active: true,
+  });
+  assert.ifError(assignmentError);
+  createdAssignmentIds.push(assignmentId);
+
   const teacherClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: teacherLogin, error: teacherLoginError } = await teacherClient.auth.signInWithPassword({ email: teacherEmail, password });
   assert.ifError(teacherLoginError);
@@ -90,6 +110,25 @@ try {
   const { data: recordedAt, error: recordError } = await authenticatedRpc.rpc("record_portal_password_login_v2");
   assert.ifError(recordError);
   assert.ok(recordedAt);
+
+  const { data: permittedDocuments, error: permittedDocumentsError } = await authenticatedRpc
+    .from("documents")
+    .select("document_code, storage_path")
+    .eq("category", "syllabus")
+    .eq("academic_term", "2026-II");
+  assert.ifError(permittedDocumentsError);
+  assert.deepEqual(permittedDocuments.map((item) => item.document_code), ["AC4011"]);
+  const { data: signedView, error: signedViewError } = await authenticatedRpc.storage
+    .from("syllabi")
+    .createSignedUrl("2026-II/AC4011.pdf", 60);
+  assert.ifError(signedViewError);
+  const viewResponse = await fetch(signedView.signedUrl);
+  assert.equal(viewResponse.ok, true);
+  assert.equal(Buffer.from(await viewResponse.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const { error: forbiddenSyllabusError } = await authenticatedRpc.storage
+    .from("syllabi")
+    .createSignedUrl("2026-II/AC4012.pdf", 60);
+  assert.ok(forbiddenSyllabusError, "Teacher unexpectedly signed a syllabus from another course");
 
   const activationClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { error: activationOtpError } = await activationClient.auth.verifyOtp({
@@ -169,8 +208,25 @@ try {
   assert.equal(recovered?.activated, true);
   assert.ok(recovered?.last_sign_in_at);
 
-  console.log(JSON.stringify({ passwordLogin: "ok", incorrectPassword: "ok", activation: "ok", recoveryRequest: "ok", recovery: "ok", accessRecorded: "ok", coordinationRead: "ok", teacherIsolation: "ok", pendingPreserved: "ok" }));
+  const { data: allSyllabi, error: allSyllabiError } = await coordinationRpc
+    .from("documents")
+    .select("document_code, storage_path")
+    .eq("category", "syllabus")
+    .eq("academic_term", "2026-II")
+    .eq("active", true);
+  assert.ifError(allSyllabiError);
+  assert.equal(allSyllabi.length, 11);
+  const { data: coordinationSigned, error: coordinationSignedError } = await coordinationRpc.storage
+    .from("syllabi")
+    .createSignedUrl("2026-II/IS6033.pdf", 60, { download: "IS6033 - MATEMÁTICA DISCRETA.pdf" });
+  assert.ifError(coordinationSignedError);
+  const downloadResponse = await fetch(coordinationSigned.signedUrl);
+  assert.equal(downloadResponse.ok, true);
+  assert.match(downloadResponse.headers.get("content-disposition") ?? "", /attachment/i);
+
+  console.log(JSON.stringify({ passwordLogin: "ok", incorrectPassword: "ok", activation: "ok", recoveryRequest: "ok", recovery: "ok", accessRecorded: "ok", coordinationRead: "ok", teacherIsolation: "ok", syllabusTeacherIsolation: "ok", syllabusView: "ok", syllabusDownload: "ok", coordinationAllSyllabi: "ok", pendingPreserved: "ok" }));
 } finally {
+  if (createdAssignmentIds.length) await admin.from("teacher_assignments").delete().in("id", createdAssignmentIds);
   if (createdUserIds.length) {
     const { error: teacherCleanupError } = await admin.from("teachers").delete().in("profile_id", createdUserIds);
     if (teacherCleanupError) console.error(`Teacher cleanup failed: ${teacherCleanupError.message}`);

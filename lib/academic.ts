@@ -44,6 +44,18 @@ export interface TeacherAccessStatus {
   lastSignInAt: string | null;
 }
 
+export interface SyllabusDocument {
+  id: string;
+  courseId: string;
+  courseName: string;
+  documentCode: string;
+  fileName: string;
+  sizeBytes: number | null;
+  uploadedAt: string | null;
+  viewUrl: string;
+  downloadUrl: string;
+}
+
 interface TeacherAccessStatusRow {
   teacher_id: string;
   full_name: string;
@@ -160,5 +172,45 @@ export async function getTeacherAccessStatuses(): Promise<TeacherAccessStatus[]>
     institutionalEmail: row.institutional_email,
     activated: row.activated,
     lastSignInAt: row.last_sign_in_at,
+  }));
+}
+
+export async function getSyllabi(): Promise<SyllabusDocument[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, course_id, document_code, file_name, size_bytes, uploaded_at, storage_path, course:courses!inner(name)")
+    .eq("category", "syllabus")
+    .eq("academic_term", "2026-II")
+    .eq("active", true)
+    .order("document_code");
+  if (error) throw error;
+
+  return Promise.all((data as unknown as Array<{
+    id: string;
+    course_id: string;
+    document_code: string;
+    file_name: string;
+    size_bytes: number | null;
+    uploaded_at: string | null;
+    storage_path: string;
+    course: { name: string };
+  }>).map(async (document) => {
+    const [view, download] = await Promise.all([
+      supabase.storage.from("syllabi").createSignedUrl(document.storage_path, 900),
+      supabase.storage.from("syllabi").createSignedUrl(document.storage_path, 900, { download: document.file_name }),
+    ]);
+    if (view.error) throw view.error;
+    if (download.error) throw download.error;
+    return {
+      id: document.id,
+      courseId: document.course_id,
+      courseName: document.course.name,
+      documentCode: document.document_code,
+      fileName: document.file_name,
+      sizeBytes: document.size_bytes,
+      uploadedAt: document.uploaded_at,
+      viewUrl: view.data.signedUrl,
+      downloadUrl: download.data.signedUrl,
+    };
   }));
 }
