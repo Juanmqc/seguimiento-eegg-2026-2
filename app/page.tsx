@@ -286,13 +286,16 @@ function Courses({ blocks }: { blocks: AcademicBlock[] }) {
 }
 
 function Schedule({ blocks }: { blocks: AcademicBlock[] }) {
+  const [pdfLoading,setPdfLoading]=useState(false);
   const order = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
   const sorted = [...blocks].sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day)||a.startTime.localeCompare(b.startTime));
   const startMinute = 7 * 60;
   const latestEnd = Math.max(startMinute + 45, ...blocks.map((block) => timeToMinutes(block.endTime)));
   const slotCount = Math.ceil((latestEnd - startMinute) / 45);
   const slots = Array.from({length:slotCount},(_,index)=>startMinute+index*45);
-  return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Programación oficial del ciclo 2026-II."/>
+  const teacherName=blocks[0]?.teacherName||"Docente";
+  const downloadPdf=async()=>{setPdfLoading(true);try{const {downloadSchedulePdf}=await import("@/lib/schedule-pdf");downloadSchedulePdf(teacherName,blocks)}catch{window.alert("No se pudo generar el horario. Inténtalo nuevamente.")}finally{setPdfLoading(false)}};
+  return <><PageTitle eyebrow="AGENDA ACADÉMICA" title="Mi horario semanal" copy="Programación oficial del ciclo 2026-II." action={<button className="primary" disabled={blocks.length===0||pdfLoading} onClick={downloadPdf}>{pdfLoading?"Generando PDF…":"↓ Descargar horario en PDF"}</button>}/>
     <section className="panel weekly-schedule-wrap" aria-label="Horario académico semanal"><div className="weekly-schedule" style={{"--schedule-rows":slotCount} as CSSProperties}>
       <div className="schedule-corner">Hora</div>
       {order.map((day,index)=><div className="schedule-day" style={{gridColumn:index+2}} key={day}>{capitalize(day)}</div>)}
