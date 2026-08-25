@@ -175,14 +175,17 @@ export async function getTeacherAccessStatuses(): Promise<TeacherAccessStatus[]>
   }));
 }
 
-export async function getSyllabi(): Promise<SyllabusDocument[]> {
-  const { data, error } = await supabase
+export async function getSyllabi(courseIds?: string[]): Promise<SyllabusDocument[]> {
+  if (courseIds && courseIds.length === 0) return [];
+
+  let query = supabase
     .from("documents")
     .select("id, course_id, document_code, file_name, size_bytes, uploaded_at, storage_path, course:courses!inner(name)")
     .eq("category", "syllabus")
     .eq("academic_term", "2026-II")
-    .eq("active", true)
-    .order("document_code");
+    .eq("active", true);
+  if (courseIds) query = query.in("course_id", courseIds);
+  const { data, error } = await query.order("document_code");
   if (error) throw error;
 
   return Promise.all((data as unknown as Array<{

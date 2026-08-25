@@ -216,6 +216,15 @@ try {
     .eq("active", true);
   assert.ifError(allSyllabiError);
   assert.equal(allSyllabi.length, 11);
+  const { data: coordinationTeacherPreview, error: coordinationTeacherPreviewError } = await coordinationRpc
+    .from("documents")
+    .select("document_code")
+    .eq("category", "syllabus")
+    .eq("academic_term", "2026-II")
+    .eq("active", true)
+    .in("course_id", ["2b66e09f-e549-5092-b7af-1930e553a028"]);
+  assert.ifError(coordinationTeacherPreviewError);
+  assert.deepEqual(coordinationTeacherPreview.map((item) => item.document_code), ["AC4011"]);
   const { data: coordinationSigned, error: coordinationSignedError } = await coordinationRpc.storage
     .from("syllabi")
     .createSignedUrl("2026-II/IS6033.pdf", 60, { download: "IS6033 - MATEMÁTICA DISCRETA.pdf" });
@@ -224,7 +233,7 @@ try {
   assert.equal(downloadResponse.ok, true);
   assert.match(downloadResponse.headers.get("content-disposition") ?? "", /attachment/i);
 
-  console.log(JSON.stringify({ passwordLogin: "ok", incorrectPassword: "ok", activation: "ok", recoveryRequest: "ok", recovery: "ok", accessRecorded: "ok", coordinationRead: "ok", teacherIsolation: "ok", syllabusTeacherIsolation: "ok", syllabusView: "ok", syllabusDownload: "ok", coordinationAllSyllabi: "ok", pendingPreserved: "ok" }));
+  console.log(JSON.stringify({ passwordLogin: "ok", incorrectPassword: "ok", activation: "ok", recoveryRequest: "ok", recovery: "ok", accessRecorded: "ok", coordinationRead: "ok", teacherIsolation: "ok", syllabusTeacherIsolation: "ok", syllabusTeacherPreviewFilter: "ok", syllabusView: "ok", syllabusDownload: "ok", coordinationAllSyllabi: "ok", pendingPreserved: "ok" }));
 } finally {
   if (createdAssignmentIds.length) await admin.from("teacher_assignments").delete().in("id", createdAssignmentIds);
   if (createdUserIds.length) {
