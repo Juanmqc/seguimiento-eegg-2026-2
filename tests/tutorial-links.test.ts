@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { portalTutorials } from "../lib/tutorials";
+import { portalTutorials } from "../lib/tutorials.ts";
 
-assert.equal(portalTutorials.length, 2);
-assert.equal(new Set(portalTutorials.map((tutorial) => tutorial.id)).size, 2);
-assert.equal(new Set(portalTutorials.map((tutorial) => tutorial.videoUrl)).size, 2);
+assert.equal(portalTutorials.length, 3);
+assert.equal(new Set(portalTutorials.map((tutorial) => tutorial.id)).size, 3);
+assert.equal(new Set(portalTutorials.map((tutorial) => tutorial.videoUrl)).size, 3);
 for (const tutorial of portalTutorials) {
   const url = new URL(tutorial.videoUrl);
   assert.equal(url.protocol, "https:");
@@ -12,4 +12,4 @@ for (const tutorial of portalTutorials) {
   assert.ok(!tutorial.videoUrl.toLowerCase().includes("localhost"));
   assert.equal(tutorial.active, true);
 }
-console.log(JSON.stringify({ tutorials: 2, uniqueLinks: true, oneDriveInstitutional: true, noLocalhost: true }));
+console.log(JSON.stringify({ tutorials: 3, uniqueLinks: true, oneDriveInstitutional: true, noLocalhost: true }));

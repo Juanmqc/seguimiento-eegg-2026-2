@@ -24,4 +24,12 @@ export const portalTutorials: PortalTutorial[] = [
     videoUrl: "https://wienercarrion-my.sharepoint.com/:v:/g/personal/juan_quinonez_uwiener_edu_pe/IQDyHI4ndyAARbcNI28k_Me5AQSYa9UNqCIm4eUnmiLfTY4?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=jEPFgM",
     active: true,
   },
+  {
+    id: "consulta-marcaciones-tardanzas-peoplesoft",
+    title: "Consulta de marcaciones y tardanzas en PeopleSoft",
+    category: "PeopleSoft / Marcaciones",
+    description: "Aprende a revisar tus marcaciones de ingreso y salida en PeopleSoft, identificar tardanzas o registros pendientes y verificar oportunamente si necesitas solicitar una rectificación.",
+    videoUrl: "https://wienercarrion-my.sharepoint.com/:v:/g/personal/juan_quinonez_uwiener_edu_pe/IQB5dOF5FlfHTJAcPcKA8n4TAVzgmWlw6veCrc-Or6jLwdM?nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJPbmVEcml2ZUZvckJ1c2luZXNzIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXciLCJyZWZlcnJhbFZpZXciOiJNeUZpbGVzTGlua0NvcHkifX0&e=fVyZjY",
+    active: true,
+  },
 ];
