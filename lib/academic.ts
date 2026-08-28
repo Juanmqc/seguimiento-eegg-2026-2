@@ -56,6 +56,18 @@ export interface SyllabusDocument {
   downloadUrl: string;
 }
 
+export interface AcademicDocument {
+  id: string;
+  title: string;
+  documentCode: string;
+  documentVersion: string;
+  fileName: string;
+  sizeBytes: number | null;
+  uploadedAt: string | null;
+  viewUrl: string;
+  downloadUrl: string;
+}
+
 interface TeacherAccessStatusRow {
   teacher_id: string;
   full_name: string;
@@ -209,6 +221,46 @@ export async function getSyllabi(courseIds?: string[]): Promise<SyllabusDocument
       courseId: document.course_id,
       courseName: document.course.name,
       documentCode: document.document_code,
+      fileName: document.file_name,
+      sizeBytes: document.size_bytes,
+      uploadedAt: document.uploaded_at,
+      viewUrl: view.data.signedUrl,
+      downloadUrl: download.data.signedUrl,
+    };
+  }));
+}
+
+export async function getAcademicDocuments(): Promise<AcademicDocument[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, title, document_code, document_version, file_name, size_bytes, uploaded_at, storage_path")
+    .eq("category", "academic")
+    .eq("active", true)
+    .is("course_id", null)
+    .order("document_code");
+  if (error) throw error;
+
+  return Promise.all((data as Array<{
+    id: string;
+    title: string;
+    document_code: string;
+    document_version: string;
+    file_name: string;
+    size_bytes: number | null;
+    uploaded_at: string | null;
+    storage_path: string;
+  }>).map(async (document) => {
+    const [view, download] = await Promise.all([
+      supabase.storage.from("portal-documents").createSignedUrl(document.storage_path, 900),
+      supabase.storage.from("portal-documents").createSignedUrl(document.storage_path, 900, { download: document.file_name }),
+    ]);
+    if (view.error) throw view.error;
+    if (download.error) throw download.error;
+    return {
+      id: document.id,
+      title: document.title,
+      documentCode: document.document_code,
+      documentVersion: document.document_version,
       fileName: document.file_name,
       sizeBytes: document.size_bytes,
       uploadedAt: document.uploaded_at,
